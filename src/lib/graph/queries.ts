@@ -9,17 +9,16 @@
  * interpolated.
  */
 
-/** Hard ceiling on traversal depth, independent of caller input. */
-export const MAX_TRAVERSAL_DEPTH = 8;
+export {
+  assertDepth,
+  parseDepth,
+  MAX_TRAVERSAL_DEPTH,
+  MIN_TRAVERSAL_DEPTH,
+  DEFAULT_TRAVERSAL_DEPTH,
+  InvalidDepthError,
+} from "./depth";
 
-export function assertDepth(depth: number): number {
-  if (!Number.isInteger(depth) || depth < 1 || depth > MAX_TRAVERSAL_DEPTH) {
-    throw new Error(
-      `Traversal depth must be an integer in 1..${MAX_TRAVERSAL_DEPTH}, received ${String(depth)}.`,
-    );
-  }
-  return depth;
-}
+import { assertDepth } from "./depth";
 
 /**
  * Downstream-impact traversal.
@@ -53,6 +52,7 @@ RETURN affected.id                              AS entityId,
        [n IN nodes(p) | n.intermediary]         AS pathIntermediary,
        [r IN relationships(p) | r.sourceId]     AS pathSourceIds,
        [r IN relationships(p) | r.kind]         AS pathKinds,
+       [r IN relationships(p) | r.id]           AS pathRelIds,
        length(p)                                AS edgeHops
 ORDER BY entityId, edgeHops, pathIds
 `.trim();

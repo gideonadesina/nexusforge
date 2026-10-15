@@ -44,6 +44,7 @@ interface ImpactRow {
   pathIntermediary: boolean[];
   pathSourceIds: Array<string | null>;
   pathKinds: Array<string | null>;
+  pathRelIds: Array<string | null>;
   edgeHops: number;
 }
 
@@ -163,6 +164,7 @@ export async function analyseImpact(
 
     const path: DependencyPath = {
       nodes,
+      relationshipIds: row.pathRelIds.map((id, i) => id ?? `unidentified_edge_${i}`),
       edgeHops: row.edgeHops,
       entityHops: countEntityHops(row.pathIntermediary, row.edgeHops),
       evidence: pathEvidence,

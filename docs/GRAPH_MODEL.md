@@ -90,6 +90,90 @@ edgeHops   = 2   (two relationships)
 entityHops = 1   (one real organizational transition: class depends on person)
 ```
 
+## Run-scoped layer (Stage 2A)
+
+Organizational data and analysis output are kept on **separate labels**. The
+seed is read by analyses and never written by them.
+
+### `:AnalysisRun`
+
+| Property | Meaning |
+|---|---|
+| `analysisRunId` | UUID. Indexed. An identifier, **not** a credential. |
+| `rootEntityId` | The change being analysed — the input event reference. |
+| `maxDepth` | Validated traversal bound actually applied. |
+| `status` | `PENDING` / `COMPLETED` / `FAILED`. |
+| `ruleId` | Versioned rule that produced the findings. |
+| `seedVersion` | Organizational seed version the run was computed against. |
+| `createdAt` / `updatedAt` | ISO timestamps. |
+| `persistAttempts` | 1 = first write, >1 = retry. |
+| `ownerTokenHash` | SHA-256 of the owner token. **Never returned by any read.** |
+
+### `:Finding`
+
+| Property | Meaning |
+|---|---|
+| `findingId` | Deterministic: `${analysisRunId}::${entityId}`. The MERGE key. |
+| `analysisRunId` | Owning run. |
+| `entityId` / `entityType` / `entityName` | The exposed entity. |
+| `claim` | `OBSERVED` at this stage. |
+| `ruleId` | Versioned derivation rule. |
+| `verificationStatus` | `UNVERIFIED` / `VERIFIED` / `CONTRADICTED`. |
+| `shortestPathEntityIds` | Ordered entity ids of the shortest route. |
+| `shortestPathRelationshipIds` | Ordered `DEPENDS_ON` edge ids actually traversed. |
+| `edgeHops` / `entityHops` | Reported separately, never conflated. |
+| `pathCount` / `allPathSignatures` | All routes, so alternatives stay inspectable. |
+| `evidenceSourceIds` | Deduplicated supporting `:Source` ids. |
+
+### Run relationships
+
+```
+(:Finding)-[:PART_OF_RUN]->(:AnalysisRun)
+(:Finding)-[:ABOUT]->(:Entity)
+(:Finding)-[:CITES]->(:Source)
+```
+
+`ABOUT` and `CITES` are additive: they originate from `:Finding` nodes and do
+not alter organizational nodes or their edges. A test fingerprints every
+`:Entity` and `:DEPENDS_ON` edge before and after persistence and asserts they
+are identical.
+
+### Idempotent persistence
+
+```cypher
+MATCH (run:AnalysisRun {analysisRunId: $runId, ownerTokenHash: $ownerTokenHash})
+UNWIND $rows AS row
+MERGE (fd:Finding {findingId: row.findingId})
+SET fd.entityId  = row.entityId,
+    fd.createdAt = coalesce(fd.createdAt, row.createdAt),
+    fd.updatedAt = row.createdAt
+MERGE (fd)-[:PART_OF_RUN]->(run)
+WITH run, collect(fd) AS findings
+RETURN size(findings) AS findingsWritten
+```
+
+Two properties matter here:
+
+1. **Authorization and mutation are one statement.** If the leading `MATCH`
+   binds nothing — wrong token, wrong run, no such run — every later clause is
+   skipped. No check-then-write window exists.
+2. **`MERGE` on a deterministic `findingId`** makes a retry converge instead of
+   duplicating. `createdAt` is preserved via `coalesce`; `updatedAt` advances.
+
+### Depth validation
+
+Depth is the single value interpolated into Cypher, because openCypher rejects
+a parameter inside `*1..n`. It is therefore validated by Zod before any query
+string is built:
+
+```ts
+z.number().int().min(1).max(8)   // no coercion
+```
+
+No string is ever accepted, so `"3 OR 1=1"` and `"2; MATCH ..."` are rejected
+structurally rather than filtered. Tests assert that **zero** graph queries are
+issued when depth is invalid.
+
 ## Claim classification
 
 Every finding carries a claim label:

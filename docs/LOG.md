@@ -235,6 +235,216 @@ that is detectable (no marker) but not automatically rolled back.
 
 ---
 
+## 2026-10-15 — Stage 2A: persisted analysis runs, findings, and authorization
+
+### What was added
+
+- `:AnalysisRun` and `:Finding` nodes, with `PART_OF_RUN`, `ABOUT`, and
+  `CITES` edges. FalkorDB remains the only datastore.
+- Run-scoped authorization via an opaque owner token (SHA-256 hashed at rest).
+- Zod-based traversal-depth validation at the one Cypher interpolation point.
+- Relationship ids are now returned by the traversal and stored on findings, so
+  a persisted finding can be re-checked against the exact edges it came from.
+
+### Authorization design
+
+An `analysisRunId` is an identifier, not a credential. Mutations additionally
+require an `ownerToken` (32 random bytes, base64url).
+
+**The ownership check lives inside the mutating statement:**
+
+```cypher
+MATCH (run:AnalysisRun {analysisRunId: $runId, ownerTokenHash: $ownerTokenHash})
+<mutation body>
+```
+
+If the MATCH binds nothing, every downstream clause is skipped and no write
+occurs. There is no separate check-then-write step, so **no TOCTOU window
+exists**. A rejected attempt returns zero rows, which `withRunAuthorization`
+converts into a `RunAuthorizationError`.
+
+All run mutations funnel through `withRunAuthorization`. Forgetting to
+authorize would mean not calling it at all — visible in review, not a silent
+bypass. `runId` and `ownerTokenHash` are reserved parameter names and a caller
+supplying either is rejected.
+
+Only the hash is persisted; the plaintext token is returned exactly once, in
+memory, and never logged. `RUN_COLUMNS` deliberately omits `ownerTokenHash`,
+and a test asserts it never appears in any read result.
+
+**Three explicitly separate pathways:**
+
+1. `createAnalysisRun` — mints a credential, so necessarily requires none.
+2. `withRunAuthorization` — every subsequent mutation.
+3. `adminDeleteRun` — operator cleanup that bypasses ownership by design.
+   Requires an explicit `iUnderstandThisBypassesOwnership: true` plus a reason,
+   and is not reachable from any request path (there is no HTTP surface yet).
+
+**Limitation, stated plainly:** a run owner token proves only "this caller
+created this run". It is **not** proof of human identity and **not**
+authority to perform a business action. Stage 2B must add action-specific
+approval authority on top.
+
+### Token transport — designed, NOT wired
+
+`src/lib/runs/token-transport.ts` defines an HttpOnly + Secure + SameSite=Lax
+cookie carrying a `runId -> token` map, so one visitor can hold several
+concurrent runs without collision, capped at 10 entries. Pure functions, unit
+tested, **not connected to any route** — there is no HTTP surface in Stage 2A.
+
+### Idempotency and retry-vs-new
+
+`findingId` is deterministic: `${analysisRunId}::${entityId}`. Re-persisting
+MERGEs onto the same ids, so a retry cannot duplicate findings, `CITES`, or
+`ABOUT` edges — all three are asserted.
+
+A **new** analysis (`runAndPersistAnalysis`) always mints a new run id and
+token. A **retry** (`retryPersistAnalysis`) reuses existing credentials and
+increments `persistAttempts`, which is how the two are distinguished.
+`createdAt` is preserved via `coalesce` while `updatedAt` advances.
+
+### Findings are computed, never fabricated
+
+`runAndPersistAnalysis` calls `analyseImpact` against the real graph and writes
+exactly its output. A test asserts the persisted entity set equals the computed
+set, and that decoys remain excluded after persistence.
+
+### Requirement 9 — cross-sector coupling audit
+
+Grepped the engine, query, authz, and persistence layers for school
+vocabulary. **No school terms appear in any engine logic** — the only matches
+were prose comments, the `class` keyword, and the `ClaimClass` type.
+
+Genuine coupling found, in exactly one production module:
+
+| Location | Coupling | Severity |
+|---|---|---|
+| `src/lib/graph/seed.ts` | Imports `domain/education/seed-data` directly; `seedEducationGraph()` and `SEED_VERSION = "edu-v1"` are education-specific | **Real** — blocks a second pack |
+| `src/lib/runs/persist.ts` | Imports `SEED_VERSION` from `graph/seed`, inheriting the education constant | **Real**, follows from the above |
+| `scripts/*`, `tests/*` | Import `SCENARIO_ROOT_ENTITY_ID` from the education pack | Acceptable — demo and test code |
+
+**Fix when the second pack lands (deliberately NOT done now):** invert the
+dependency so `seed.ts` takes a `DomainPack` argument (`{ domain, seedVersion,
+sources, entities, dependencies }`) instead of importing one, and have
+`persist.ts` read `seedVersion` from the run's inputs rather than a module
+constant. The engine, queries, and authz layers need **no** change — they are
+already sector-agnostic.
+
+### Requirement 13 — DNS diagnosis: CONCLUSIVE
+
+`scripts/dns-watch.ts`, 28 samples over ~12 minutes, sampling three layers
+independently (DNS → TCP → FalkorDB query) and attributing each failure to the
+lowest failing layer.
+
+| Metric | Result |
+|---|---|
+| Attempts | 28 |
+| Successes | 26 |
+| Failures | 2 (**7.1%**) |
+| **DNS-layer failures** | **2** |
+| TCP-layer failures | **0** |
+| Query-layer failures | **0** |
+| Error codes | `ENOTFOUND` ×2 |
+| DNS latency avg / max | 623 ms / **12,075 ms** |
+| TCP latency avg / max | 1,351 ms / 3,876 ms |
+| Query latency avg / max | 5,303 ms / 19,346 ms |
+| Classification | **INTERMITTENT, DNS resolution only** |
+
+**Conclusion:** this is **not** a FalkorDB problem. Once the hostname
+resolves, TCP and the database succeeded **100% of the time**. The fault is
+local DNS resolution of the cloud hostname.
+
+Both failures were **isolated single samples** — the next attempt ~20–30s
+later succeeded. One failed instantly (2 ms, consistent with a negative DNS
+cache); the other failed after a 12 s resolver timeout.
+
+**Evidence-driven change (not speculation):** the Stage 1 retry budget was 4
+attempts over 3.5 s, which cannot cross a ~20–30 s negative-DNS window. It is
+now 6 attempts with 1/2/4/8/16 s backoff (31 s total), calibrated to the
+measured recovery time. A genuinely dead instance still fails, 31 s later.
+This change took the suite from 15 failures to 0 on the next run.
+
+Hosting, network configuration, and the database were **not** altered.
+
+### Bug found and fixed — unhandled socket error crashed the process
+
+The first diagnosis run **died** with an unhandled `'error'` event:
+
+```
+Error: read ECONNRESET
+Emitted 'error' event on FalkorDB instance at: falkordb/dist/src/falkordb.js:49
+```
+
+`FalkorDB` extends `EventEmitter`, and Node re-throws an `'error'` event that
+has no listener, terminating the process. Any idle-socket reset in production
+would have killed the server.
+
+**Fix:** `getDb()` now attaches an `error` listener that records the redacted
+fault via `getLastSocketError()` instead of crashing. Re-run completed all 28
+samples with 0 unhandled resets.
+
+### Performance note for deployment
+
+Cold connect + auth + a trivial query averaged **5.3 s** (max 19.3 s). Well
+inside Vercel's 300 s limit, but it makes connection reuse essential rather
+than merely nice — reinforcing the existing cached-connection design.
+
+### Stage 2A verification
+
+| Check | Result |
+|---|---|
+| `npx vitest run` | **152 passed / 152**, 0 skipped, 7 files (final run) |
+| `npx tsc --noEmit` | clean, strict + `noUncheckedIndexedAccess` |
+| `npx next build` | exit 0, 2 static routes |
+| `npx tsx scripts/smoke-runs.ts` | SMOKE PASSED, 17/17 checks |
+| Stage 1 regression | all 41 original tests still pass |
+
+Verified test counts by file (from the JSON reporter, not estimated):
+
+| File | Tests | Type |
+|---|---|---|
+| `impact.test.ts` | 21 | integration (real DB) |
+| `connection-and-readonly.test.ts` | 12 | integration (real DB) |
+| `seed-idempotency.test.ts` | 8 | integration (real DB) |
+| `runs-persistence.test.ts` | 23 | integration (real DB) |
+| `runs-authz.test.ts` | 22 | integration (real DB) |
+| `depth-validation.test.ts` | 49 | **unit (client mocked, labelled as such)** |
+| `token-transport.test.ts` | 17 | **unit (pure functions)** |
+| **Total** | **152** | 86 integration, 66 unit |
+
+**Stage 1 regression:** the three original files still total exactly **41**
+tests (21 + 12 + 8), all passing. No Stage 1 test was weakened or removed.
+
+### Test-suite flakiness — stated honestly
+
+The suite is **not reliably green on every run**, and the cause is the DNS
+fault above, not a defect in the code:
+
+Four full-suite runs on identical code (after the retry fix, except the first):
+
+| # | Run | Result |
+|---|---|---|
+| 1 | Before retry recalibration | 15 failed / 137 passed |
+| 2 | After recalibration | **152 passed / 152** |
+| 3 | JSON-reporter run | 127 passed, **3 failed**, 22 skipped |
+| 4 | Final verification run | **152 passed / 152** |
+
+Run 3's three failures were all in `impact.test.ts`, which reported an absurd
+14,554 s file duration — a DNS stall, not an assertion failure. Re-running
+that file alone gave **21/21 passing**, confirming no regression from the
+Stage 2A changes to `impact.ts` and `queries.ts`.
+
+So: roughly **2 of 4 full runs fail** for environmental reasons. The 31 s
+retry budget reduces but does **not** eliminate the exposure — the suite takes
+3.5–5.5 minutes and Vitest isolates each test file in its own module context,
+so every file re-resolves DNS. Five integration files means five independent
+chances to hit a ~7% fault per run.
+
+**This is a demo risk, not just a CI annoyance.** It is recorded here rather
+than hidden behind a re-run.
+
+---
+
 ## Day 2 requirement — analysis-run isolation and safe reset
 
 Recorded now, **deliberately not implemented in Stage 1** (Guardrail 9).

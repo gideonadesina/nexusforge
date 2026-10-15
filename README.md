@@ -60,8 +60,9 @@ suite.
 
 ## What actually works
 
-### IMPLEMENTED AND TESTED (real database, 41 passing tests)
+### IMPLEMENTED AND TESTED (real database, 152 passing tests)
 
+**Graph reasoning (Stage 1)**
 - Connection to FalkorDB Cloud with Zod-validated configuration
 - Deterministic, **idempotent** seeding — verified over three consecutive runs
 - Bounded multi-hop dependency traversal via parameterized Cypher
@@ -75,12 +76,26 @@ suite.
 - Re-seed pathway for a missing graph
 - Independent re-check query that cross-validates the distinct-entity count
 
-### NOT IMPLEMENTED (deliberately — Stage 2)
+**Durable analysis runs (Stage 2A)**
+- `:AnalysisRun` and `:Finding` nodes persisted in FalkorDB, with the
+  traversed relationship ids, path signatures, and evidence references
+- Findings survive a fresh application connection
+- **Run isolation** — concurrent runs never overwrite each other's findings
+- **Idempotent retries** — re-persisting a run creates no duplicates, while
+  `persistAttempts` distinguishes a retry from a new analysis
+- **Run-scoped authorization** — an opaque owner token, SHA-256 hashed at rest,
+  enforced *inside* the mutating Cypher statement (no check-then-write race)
+- Rejected mutations provably change nothing
+- **Strict depth validation** — fractions, negatives, zero, out-of-range, NaN,
+  Infinity, and all string input rejected before any Cypher is constructed
+
+### NOT IMPLEMENTED (deliberately — Stage 2B and later)
 
 Qualification and availability rules · replacement-candidate ranking ·
-missing-data and contradiction detection · findings persisted as nodes ·
-action proposals and approval workflow · audit records · analysis-run
-isolation · LLM integration · any user interface · a second domain pack.
+missing-data and contradiction detection · action proposals and approval
+workflow · audit records · LLM integration · any user interface · a second
+domain pack · any HTTP surface (the cookie transport is designed and unit
+tested but **not wired to a route**).
 
 **There is no UI.** The page at `/` is a static placeholder. Stage 1 is
 exercised from the CLI and the test suite.
@@ -167,6 +182,46 @@ cyclic subgraph from producing misleading trails.
 
 ---
 
+## Analysis runs and authorization
+
+Every analysis is a durable, inspectable run.
+
+```
+(:Finding)-[:PART_OF_RUN]->(:AnalysisRun)
+(:Finding)-[:ABOUT]->(:Entity)
+(:Finding)-[:CITES]->(:Source)
+```
+
+A run records its input event, depth bound, rule id, seed version, status, and
+counts. A finding records the affected entity, claim class, rule version, the
+**relationship ids actually traversed**, every alternative path signature, and
+its evidence source ids.
+
+Run and finding data live on their own labels. Persisting a run **never**
+modifies organizational data — asserted by comparing a full fingerprint of
+every `:Entity` and `:DEPENDS_ON` edge before and after.
+
+### Owner tokens
+
+An `analysisRunId` is an identifier, **not a credential**. Mutating a run also
+requires an opaque `ownerToken` (32 random bytes), returned exactly once when
+the run is created. Only its SHA-256 hash is stored.
+
+Authorization is enforced *inside* the mutating statement:
+
+```cypher
+MATCH (run:AnalysisRun {analysisRunId: $runId, ownerTokenHash: $ownerTokenHash})
+<mutation>
+```
+
+If the match binds nothing, the mutation never runs — there is no separate
+check-then-write step and therefore no race. Every run mutation funnels through
+`withRunAuthorization`.
+
+> An owner token proves only that the caller created the run. It is **not**
+> proof of human identity, and **not** authority to perform a business action.
+> Action-specific approval authority is Stage 2B.
+
 ## Claim classification
 
 | Label | Meaning |
@@ -196,9 +251,10 @@ names, registers, rosters, and minutes are invented for this demonstration.
 ## Known limitations
 
 1. **No UI.** CLI and tests only.
-2. **No agent or LLM integration yet.** Stage 1 is purely deterministic.
-3. **Shared mutable graph.** No per-analysis isolation — concurrent users would
-   interfere. Designed but deliberately deferred (see `docs/LOG.md`).
+2. **No agent or LLM integration yet.** The system is purely deterministic.
+3. **Run ownership is not identity.** An owner token proves only that the
+   caller created the run. It is not authentication, and not authority to
+   approve a business action. Stage 2B must add that.
 4. **Seeding is recoverable, not atomic.** FalkorDB executes each query
    atomically, but the seed spans five statements with no cross-statement
    transaction. Every statement is `MERGE`-keyed so re-running repairs a
@@ -209,10 +265,20 @@ names, registers, rosters, and minutes are invented for this demonstration.
 6. **Free-tier idle behaviour unverified.** The instance may be stopped or
    reclaimed; `ensureSeeded()` exists to rebuild. Our planning assumed two
    pre-existing graphs on the instance — there were actually **zero**.
-7. **Intermittent DNS failures** were observed resolving the Cloud hostname.
-   Mitigated with bounded retry; not eliminated.
-8. **Single domain pack.** Cross-sector reuse is designed for but not yet
-   demonstrated with a second pack.
+7. **Intermittent DNS failures** resolving the Cloud hostname. A 28-sample
+   diagnosis measured a **7.1% failure rate, entirely at the DNS layer** —
+   zero TCP and zero database failures once the name resolved. Mitigated with
+   a 31 s retry budget calibrated to the measured recovery time, but **not
+   eliminated**: the test suite still fails intermittently for this reason,
+   and a live demo could stall on first load. See `docs/LOG.md`.
+8. **Cold connect latency averages ~5 s** (max 19 s) to the free-tier
+   instance, so connection reuse is essential.
+9. **Single domain pack.** The engine, queries, and authorization layers are
+   sector-agnostic (audited — no school vocabulary). The one real coupling is
+   `src/lib/graph/seed.ts`, which imports the education pack directly; that
+   dependency must be inverted when a second pack lands.
+10. **No HTTP surface.** The owner-token cookie transport is designed and unit
+    tested but deliberately not wired to any route.
 
 ---
 

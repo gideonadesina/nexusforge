@@ -47,6 +47,12 @@ export interface PathNode {
 export interface DependencyPath {
   /** Ordered nodes: [affected, ...intermediate, root]. */
   nodes: PathNode[];
+  /**
+   * Stable ids of the DEPENDS_ON relationships traversed, in path order.
+   * `relationshipIds.length === edgeHops`. These make a persisted finding
+   * re-checkable against the exact edges it was derived from.
+   */
+  relationshipIds: string[];
   /** Number of graph relationships traversed. */
   edgeHops: number;
   /**
