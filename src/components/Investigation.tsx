@@ -61,6 +61,14 @@ export function Investigation() {
   /** How many hop columns are visible. Reveal only; never gates data. */
   const [revealedHops, setRevealedHops] = useState(99);
   const [revealing, setRevealing] = useState(false);
+  /**
+   * Which pane is visible below the lg breakpoint.
+   *
+   * The two panes stack on narrow screens, which pushed the graph off the
+   * bottom of a phone entirely. A toggle shows one at a time; at lg and above
+   * both are visible side by side exactly as before.
+   */
+  const [mobileView, setMobileView] = useState<"narrative" | "graph">("narrative");
   const [busy, setBusy] = useState(false);
   const [busyProposal, setBusyProposal] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -312,9 +320,36 @@ export function Investigation() {
         </div>
       )}
 
+      {/* Pane toggle: narrow screens only. */}
+      <div
+        className="flex shrink-0 border-b border-[var(--color-line)] bg-[var(--color-surface-1)] lg:hidden"
+        role="tablist"
+        aria-label="Switch between the narrative and the graph"
+      >
+        {(["narrative", "graph"] as const).map((v) => (
+          <button
+            key={v}
+            role="tab"
+            aria-selected={mobileView === v}
+            onClick={() => setMobileView(v)}
+            className={`nf-anim flex-1 border-b-2 px-3 py-2 text-xs capitalize ${
+              mobileView === v
+                ? "border-[var(--color-accent)] text-[var(--color-accent)]"
+                : "border-transparent text-[var(--color-ink-muted)]"
+            }`}
+          >
+            {v === "graph" ? "Graph" : "Findings"}
+          </button>
+        ))}
+      </div>
+
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* LEFT — narrative */}
-        <div className="nf-scroll w-full shrink-0 overflow-y-auto border-[var(--color-line)] p-5 lg:w-[23rem] lg:border-r">
+        <div
+          className={`nf-scroll w-full shrink-0 overflow-y-auto border-[var(--color-line)] p-5 lg:block lg:w-[23rem] lg:border-r ${
+            mobileView === "graph" ? "hidden" : "block"
+          }`}
+        >
           {org && (
             <section className="mb-5 border border-[var(--color-line)] bg-[var(--color-surface-1)] p-3">
               <div className="text-sm font-medium">{org.label}</div>
@@ -387,6 +422,29 @@ export function Investigation() {
                 />
               </section>
 
+              {/*
+                Text equivalent of the canvas. Kept for screen readers and for
+                anyone who would rather read the chains than pan a graph.
+              */}
+              <section className="mt-6">
+                <details>
+                  <summary className="cursor-pointer text-xs uppercase tracking-wide text-[var(--color-ink-muted)]">
+                    Dependency chains (text)
+                  </summary>
+                  <ul className="mt-2 space-y-3">
+                    {analysis.impacted.map((e) => (
+                      <li
+                        key={e.entityId}
+                        className="border border-[var(--color-line)] p-2"
+                      >
+                        <div className="text-xs">{e.name}</div>
+                        <PathChain entity={e} pathIndex={0} />
+                      </li>
+                    ))}
+                  </ul>
+                </details>
+              </section>
+
               <section className="mt-6">
                 <h2 className="mb-2 text-xs uppercase tracking-wide text-[var(--color-ink-muted)]">
                   Proposed actions
@@ -412,10 +470,14 @@ export function Investigation() {
         </div>
 
         {/* CENTRE — canvas, with the Inspector sliding over it */}
-        <main className="relative min-h-0 flex-1 overflow-hidden bg-[var(--color-surface-1)]">
+        <main
+          className={`relative min-h-0 flex-1 overflow-hidden bg-[var(--color-surface-1)] lg:block ${
+            mobileView === "narrative" ? "hidden" : "block"
+          }`}
+        >
           {analysis ? (
             <>
-              <div className="hidden h-full flex-col md:flex">
+              <div className="flex h-full flex-col">
                 <Headline
                   analysis={analysis}
                   proposals={proposals}
@@ -442,22 +504,6 @@ export function Investigation() {
                     revealedHops={revealedHops}
                   />
                 </div>
-              </div>
-
-              {/* Narrow screens get the text path chain, which is also the
-                  screen-reader equivalent of the canvas. */}
-              <div className="nf-scroll h-full overflow-y-auto p-5 md:hidden">
-                <h2 className="mb-3 text-xs uppercase tracking-wide text-[var(--color-ink-muted)]">
-                  Dependency chains
-                </h2>
-                <ul className="space-y-4">
-                  {analysis.impacted.map((e) => (
-                    <li key={e.entityId} className="border border-[var(--color-line)] p-3">
-                      <div className="text-sm">{e.name}</div>
-                      <PathChain entity={e} pathIndex={0} />
-                    </li>
-                  ))}
-                </ul>
               </div>
 
               <Inspector

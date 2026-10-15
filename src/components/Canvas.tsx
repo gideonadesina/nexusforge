@@ -135,8 +135,8 @@ export function Canvas({
           tracedRelIds={traced?.relationshipIds ?? null}
         />
 
-        <div className="relative flex min-w-max items-start gap-16">
-          <section aria-label="The change" className="w-56 shrink-0">
+        <div className="relative flex min-w-max items-start gap-10 sm:gap-16">
+          <section aria-label="The change" className="w-44 shrink-0 sm:w-56">
             <ColumnHeader hop={0} label="changed" count={1} />
             <article
               ref={(el) => registerNode(rootEntityId, el)}
@@ -156,7 +156,7 @@ export function Canvas({
             <section
               key={col.hop}
               aria-label={`Entities ${col.hop} hop${col.hop === 1 ? "" : "s"} from the change`}
-              className={`nf-anim w-56 shrink-0 ${
+              className={`nf-anim w-44 shrink-0 sm:w-56 ${
                 visibleHop(col.hop) ? "opacity-100" : "pointer-events-none opacity-0"
               }`}
             >
@@ -335,7 +335,7 @@ function EntityNode({
       onClick={() => onSelect(entity.entityId)}
       aria-pressed={selected}
       className={[
-        "nf-anim relative z-10 w-full border p-3 text-left",
+        "nf-anim relative z-10 w-full touch-manipulation border p-3 text-left",
         uncertain
           ? "border-dashed border-[var(--color-sev-warn)] bg-[var(--color-surface-1)]"
           : "border-[var(--color-line)] bg-[var(--color-surface-2)]",

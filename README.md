@@ -338,6 +338,43 @@ names, registers, rosters, and minutes are invented for this demonstration.
 
 ## Known limitations
 
+### Mobile graph access — HIGH PRIORITY UX (partially addressed)
+
+**Reported by the project owner from a real phone:** the graph was hidden
+below 768px, so graph exploration — the core of the product — was unavailable
+on mobile.
+
+**Cause:** the canvas was `hidden md:block`, and the narrative and graph panes
+stacked vertically on narrow screens, pushing the graph off the bottom.
+
+**What changed:** the canvas now renders at every viewport. A Findings/Graph
+toggle shows one pane at a time below `lg`; at `lg` and above the side-by-side
+desktop layout is untouched. Columns narrow to `w-44` on phones, nodes are
+touch targets, Trace works by tap, and the Inspector is full-width. A text
+"Dependency chains" disclosure remains as the screen-reader equivalent.
+
+**Not yet verified on a real device.** Browser automation was unavailable in
+this environment, so this fix is verified by build and code review only. It
+needs hands-on checking on an actual phone — see the manual checklist below.
+
+**Honest assessment:** this makes the graph *reachable and usable* on mobile;
+it is not a purpose-built mobile graph experience. A graph with many entities
+per hop will still require horizontal panning. A dedicated mobile layout
+(vertical hop stacking, pinch-zoom, focus-on-tap) is the right long-term
+answer and is deliberately out of scope before submission.
+
+### Manual mobile checklist (must be done on a device)
+
+- [ ] Graph tab renders the canvas with visible directed edges
+- [ ] Tapping a node opens the Inspector and dims unrelated nodes
+- [ ] Edges stay attached to nodes while panning horizontally
+- [ ] Alternative routes are selectable in the Inspector
+- [ ] Evidence excerpts are readable without horizontal page scroll
+- [ ] Approve/reject controls are tappable
+- [ ] Switching organization clears the previous investigation
+
+---
+
 1. **No UI.** CLI and tests only.
 2. **No agent or LLM integration yet.** The system is purely deterministic.
 3. **Run ownership is not identity.** An owner token proves only that the
