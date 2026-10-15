@@ -19,3 +19,6 @@ coverage
 # local scratch
 install.cmd
 /scratch
+
+.vercel
+.env*

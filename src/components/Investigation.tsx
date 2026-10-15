@@ -1,0 +1,476 @@
+"use client";
+
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type {
+  AnalysisResponse,
+  AuditEvent,
+  EntityOption,
+  ImpactedEntity,
+  Proposal,
+} from "./types";
+import { Canvas } from "./Canvas";
+import { Inspector, PathChain } from "./Inspector";
+import { FindingsList } from "./Findings";
+import { Proposals, AuditTrail } from "./Proposals";
+
+/**
+ * The investigation view.
+ *
+ * Three regions: narrative on the left, hop-column canvas in the centre, and
+ * the Inspector sliding over the canvas on the right.
+ *
+ * Every number on this screen comes from the API, which computes it from
+ * FalkorDB. There is no client-side fabrication and no placeholder data — if
+ * a request fails, the failure is shown.
+ */
+
+interface LogEntry {
+  at: string;
+  label: string;
+  detail: string;
+  /** Expandable receipt body. */
+  receipt?: string;
+}
+
+export function Investigation() {
+  const [entities, setEntities] = useState<EntityOption[]>([]);
+  const [rootId, setRootId] = useState<string>("");
+  const [depth, setDepth] = useState<number>(6);
+
+  const [analysis, setAnalysis] = useState<AnalysisResponse | null>(null);
+  const [proposals, setProposals] = useState<Proposal[]>([]);
+  const [auditEvents, setAuditEvents] = useState<AuditEvent[]>([]);
+  const [canDecide, setCanDecide] = useState(false);
+
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [busyProposal, setBusyProposal] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [log, setLog] = useState<LogEntry[]>([]);
+
+  const addLog = useCallback((label: string, detail: string, receipt?: string) => {
+    setLog((l) => [
+      ...l,
+      {
+        at: new Date().toISOString().slice(11, 19),
+        label,
+        detail,
+        ...(receipt ? { receipt } : {}),
+      },
+    ]);
+  }, []);
+
+  // Load the entity list from the graph so the picker is not hardcoded.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/entities");
+        const body = await res.json();
+        if (cancelled) return;
+        if (!res.ok) {
+          setError(body.error ?? "Could not load entities.");
+          return;
+        }
+        setEntities(body.entities);
+        const first = body.entities.find((e: EntityOption) => e.dependentCount > 0);
+        if (first) setRootId(first.id);
+        addLog(
+          "graph connected",
+          `${body.entities.length} entities in ${body.graphName}`,
+          `GET /api/entities → 200\ngraph: ${body.graphName}\nentities: ${body.entities.length}`,
+        );
+      } catch (err) {
+        if (!cancelled) setError(err instanceof Error ? err.message : String(err));
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [addLog]);
+
+  const runAnalysis = useCallback(async () => {
+    if (!rootId) return;
+    setBusy(true);
+    setError(null);
+    setSelectedId(null);
+    const started = Date.now();
+    try {
+      const res = await fetch("/api/analysis", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rootEntityId: rootId, maxDepth: depth }),
+      });
+      const body = await res.json();
+      if (!res.ok) {
+        setError(`${body.code}: ${body.error}`);
+        addLog("analysis failed", body.error, `HTTP ${res.status}\n${body.code}`);
+        return;
+      }
+      const data = body as AnalysisResponse;
+      setAnalysis(data);
+      setProposals(data.proposals);
+      setAuditEvents([]);
+      setCanDecide(true);
+
+      addLog(
+        "traversal complete",
+        `${data.distinctImpactedCount} distinct entities via ${data.totalPathCount} paths`,
+        [
+          `POST /api/analysis → 200`,
+          `root: ${data.root.entityId}`,
+          `depth bound: ${data.maxDepth}`,
+          `rule: ${data.ruleId}`,
+          `distinct entities: ${data.distinctImpactedCount}`,
+          `dependency paths: ${data.totalPathCount}`,
+          `server time: ${data.latencyMs} ms`,
+          `round trip: ${Date.now() - started} ms`,
+        ].join("\n"),
+      );
+
+      const observed = data.impacted.filter((e) => e.claim === "OBSERVED").length;
+      addLog(
+        "claims classified",
+        `${observed} observed, ${data.impacted.length - observed} derived`,
+        `OBSERVED = one evidenced relationship\nDERIVED = chained conclusion`,
+      );
+
+      if (data.proposals.length > 0) {
+        addLog(
+          "proposals generated",
+          `${data.proposals.length} from deterministic rules`,
+          data.proposals.map((p) => `${p.ruleId} → ${p.targetEntityId}`).join("\n"),
+        );
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  }, [rootId, depth, addLog]);
+
+  const decide = useCallback(
+    async (proposalId: string, decision: "APPROVED" | "REJECTED") => {
+      setBusyProposal(proposalId);
+      setError(null);
+      try {
+        const res = await fetch(`/api/proposals/${encodeURIComponent(proposalId)}/decision`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ decision }),
+        });
+        const body = await res.json();
+        if (!res.ok) {
+          setError(`${body.code}: ${body.error}`);
+          addLog("decision rejected", body.error, `HTTP ${res.status}\n${body.code}`);
+          return;
+        }
+        setProposals((ps) =>
+          ps.map((p) => (p.proposalId === proposalId ? body.proposal : p)),
+        );
+        setAuditEvents((es) => [
+          ...es.filter((e) => e.proposalId !== proposalId),
+          ...body.auditEvents,
+        ]);
+        addLog(
+          "decision recorded",
+          `${decision.toLowerCase()} — not executed`,
+          [
+            `POST /api/proposals/.../decision → 200`,
+            `transition: ${body.transition.fromState} → ${body.transition.toState}`,
+            `audit event: ${body.transition.auditEventId}`,
+            `executed: ${body.executed}`,
+            body.semantics.approvedDoesNotMean,
+          ].join("\n"),
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setBusyProposal(null);
+      }
+    },
+    [addLog],
+  );
+
+  const selected: ImpactedEntity | null = useMemo(
+    () => analysis?.impacted.find((e) => e.entityId === selectedId) ?? null,
+    [analysis, selectedId],
+  );
+
+  const rootOption = entities.find((e) => e.id === rootId);
+
+  return (
+    <div className="flex h-dvh flex-col bg-[var(--color-surface-0)]">
+      <TopBar
+        entities={entities}
+        rootId={rootId}
+        onRootChange={setRootId}
+        depth={depth}
+        onDepthChange={setDepth}
+        onRun={runAnalysis}
+        busy={busy}
+        analysis={analysis}
+      />
+
+      {error && (
+        <div
+          role="alert"
+          className="border-b border-[var(--color-sev-high)] bg-[var(--color-surface-1)] px-5 py-2 text-sm text-[var(--color-sev-high)]"
+        >
+          {error}
+        </div>
+      )}
+
+      <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
+        {/* LEFT — narrative */}
+        <div className="nf-scroll w-full shrink-0 overflow-y-auto border-[var(--color-line)] p-5 lg:w-[23rem] lg:border-r">
+          <section>
+            <h2 className="text-xs uppercase tracking-wide text-[var(--color-ink-muted)]">
+              Question
+            </h2>
+            <p className="mt-1.5 text-sm leading-relaxed">
+              {rootOption ? (
+                <>
+                  If{" "}
+                  <span className="nf-graph-value text-[var(--color-ink)]">
+                    {rootOption.name}
+                  </span>{" "}
+                  changes or becomes unavailable, what is exposed, why, and on
+                  what evidence?
+                </>
+              ) : (
+                "Select an entity and run an analysis."
+              )}
+            </p>
+          </section>
+
+          <section className="mt-6">
+            <h2 className="mb-2 text-xs uppercase tracking-wide text-[var(--color-ink-muted)]">
+              Investigation log
+            </h2>
+            <InvestigationLog entries={log} />
+          </section>
+
+          {analysis && (
+            <>
+              <section className="mt-6">
+                <h2 className="mb-2 text-xs uppercase tracking-wide text-[var(--color-ink-muted)]">
+                  Findings
+                </h2>
+                <FindingsList
+                  impacted={analysis.impacted}
+                  proposals={proposals}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                />
+              </section>
+
+              <section className="mt-6">
+                <h2 className="mb-2 text-xs uppercase tracking-wide text-[var(--color-ink-muted)]">
+                  Proposed actions
+                </h2>
+                <Proposals
+                  proposals={proposals}
+                  auditEvents={auditEvents}
+                  canDecide={canDecide}
+                  busyId={busyProposal}
+                  onDecide={decide}
+                  onSelectTarget={setSelectedId}
+                />
+              </section>
+
+              <section className="mt-6">
+                <h2 className="mb-2 text-xs uppercase tracking-wide text-[var(--color-ink-muted)]">
+                  Audit history
+                </h2>
+                <AuditTrail events={auditEvents} />
+              </section>
+            </>
+          )}
+        </div>
+
+        {/* CENTRE — canvas, with the Inspector sliding over it */}
+        <main className="relative min-h-0 flex-1 overflow-hidden bg-[var(--color-surface-1)]">
+          {analysis ? (
+            <>
+              <div className="hidden h-full md:block">
+                <Canvas
+                  rootName={analysis.root.name}
+                  rootEntityId={analysis.root.entityId}
+                  rootEntityType={analysis.root.entityType}
+                  impacted={analysis.impacted}
+                  selectedId={selectedId}
+                  onSelect={setSelectedId}
+                />
+              </div>
+
+              {/* Narrow screens get the text path chain, which is also the
+                  screen-reader equivalent of the canvas. */}
+              <div className="nf-scroll h-full overflow-y-auto p-5 md:hidden">
+                <h2 className="mb-3 text-xs uppercase tracking-wide text-[var(--color-ink-muted)]">
+                  Dependency chains
+                </h2>
+                <ul className="space-y-4">
+                  {analysis.impacted.map((e) => (
+                    <li key={e.entityId} className="border border-[var(--color-line)] p-3">
+                      <div className="text-sm">{e.name}</div>
+                      <PathChain entity={e} />
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <Inspector
+                entity={selected}
+                rootEntityId={analysis.root.entityId}
+                maxDepth={analysis.maxDepth}
+                onClose={() => setSelectedId(null)}
+              />
+            </>
+          ) : (
+            <EmptyState busy={busy} />
+          )}
+        </main>
+      </div>
+    </div>
+  );
+}
+
+function TopBar({
+  entities,
+  rootId,
+  onRootChange,
+  depth,
+  onDepthChange,
+  onRun,
+  busy,
+  analysis,
+}: {
+  entities: EntityOption[];
+  rootId: string;
+  onRootChange: (v: string) => void;
+  depth: number;
+  onDepthChange: (v: number) => void;
+  onRun: () => void;
+  busy: boolean;
+  analysis: AnalysisResponse | null;
+}) {
+  return (
+    <header className="flex flex-wrap items-center gap-3 border-b border-[var(--color-line)] bg-[var(--color-surface-1)] px-5 py-3">
+      <div className="mr-2">
+        <div className="text-sm font-medium tracking-tight">NexusForge</div>
+        <div className="text-[0.6875rem] text-[var(--color-ink-faint)]">
+          organizational dependency intelligence
+        </div>
+      </div>
+
+      <label className="flex items-center gap-2 text-xs text-[var(--color-ink-muted)]">
+        <span>Changed entity</span>
+        <select
+          value={rootId}
+          onChange={(e) => onRootChange(e.target.value)}
+          className="nf-graph-value max-w-xs border border-[var(--color-line-strong)] bg-[var(--color-surface-2)] px-2 py-1 text-[var(--color-ink)]"
+        >
+          {entities.length === 0 && <option value="">loading…</option>}
+          {entities.map((e) => (
+            <option key={e.id} value={e.id}>
+              {e.name} · {e.type} ({e.dependentCount})
+            </option>
+          ))}
+        </select>
+      </label>
+
+      <label className="flex items-center gap-2 text-xs text-[var(--color-ink-muted)]">
+        <span>Depth</span>
+        <input
+          type="number"
+          min={1}
+          max={8}
+          value={depth}
+          onChange={(e) => onDepthChange(Number(e.target.value))}
+          className="nf-graph-value nf-num w-14 border border-[var(--color-line-strong)] bg-[var(--color-surface-2)] px-2 py-1 text-[var(--color-ink)]"
+        />
+      </label>
+
+      <button
+        type="button"
+        onClick={onRun}
+        disabled={busy || !rootId}
+        className="border border-[var(--color-accent-dim)] bg-[var(--color-surface-2)] px-3 py-1.5 text-xs text-[var(--color-accent)] hover:bg-[var(--color-surface-3)] disabled:cursor-not-allowed disabled:opacity-40"
+      >
+        {busy ? "Querying graph…" : "Run analysis"}
+      </button>
+
+      {analysis && (
+        <div className="ml-auto flex items-center gap-4 text-xs text-[var(--color-ink-faint)]">
+          <span className="nf-graph-value nf-num">
+            {analysis.distinctImpactedCount} entities
+          </span>
+          <span className="nf-graph-value nf-num">{analysis.totalPathCount} paths</span>
+          <span className="nf-graph-value nf-num">{analysis.latencyMs} ms</span>
+        </div>
+      )}
+    </header>
+  );
+}
+
+function InvestigationLog({ entries }: { entries: LogEntry[] }) {
+  const [open, setOpen] = useState<number | null>(null);
+  if (entries.length === 0) {
+    return (
+      <p className="text-xs text-[var(--color-ink-faint)]">
+        Nothing yet. Run an analysis.
+      </p>
+    );
+  }
+  return (
+    <ol className="space-y-1">
+      {entries.map((e, i) => (
+        <li key={`${e.at}-${i}`}>
+          <button
+            type="button"
+            onClick={() => setOpen(open === i ? null : i)}
+            aria-expanded={open === i}
+            className="flex w-full items-baseline gap-2 border-l-2 border-[var(--color-line-strong)] py-0.5 pl-2 text-left hover:border-[var(--color-accent)]"
+          >
+            <span className="text-[var(--color-ink-faint)]" aria-hidden="true">
+              {e.receipt ? (open === i ? "▾" : "▸") : "·"}
+            </span>
+            <span className="flex-1">
+              <span className="text-xs text-[var(--color-ink)]">{e.label}</span>
+              <span className="ml-1.5 text-xs text-[var(--color-ink-muted)]">
+                {e.detail}
+              </span>
+            </span>
+            <time className="nf-graph-value nf-num text-[0.6875rem] text-[var(--color-ink-faint)]">
+              {e.at}
+            </time>
+          </button>
+          {open === i && e.receipt && (
+            <pre className="nf-scroll ml-2 mt-1 overflow-x-auto border border-[var(--color-line)] bg-[var(--color-surface-0)] p-2 text-[0.6875rem] text-[var(--color-ink-muted)]">
+              <code className="nf-graph-value">{e.receipt}</code>
+            </pre>
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function EmptyState({ busy }: { busy: boolean }) {
+  return (
+    <div className="flex h-full items-center justify-center p-8">
+      <div className="max-w-md text-center">
+        <p className="text-sm text-[var(--color-ink-muted)]">
+          {busy
+            ? "Running a bounded multi-hop traversal against FalkorDB…"
+            : "Select a changed entity and run an analysis."}
+        </p>
+        <p className="mt-3 text-xs leading-relaxed text-[var(--color-ink-faint)]">
+          Results are computed from dependency relationships in the graph. A
+          dependency path proves exposure to a change, not operational failure.
+        </p>
+      </div>
+    </div>
+  );
+}

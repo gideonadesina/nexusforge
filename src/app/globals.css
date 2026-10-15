@@ -1,1 +1,151 @@
 @import "tailwindcss";
+
+/*
+ * NexusForge design tokens.
+ *
+ * Two rules govern everything here:
+ *
+ * 1. TYPOGRAPHY IS AN EPISTEMIC SIGNAL. Monospace means "this value came out
+ *    of a graph query and can be checked". Proportional means "the system
+ *    wrote this". The user learns the distinction without being told.
+ *
+ * 2. UNCERTAINTY IS SHOWN BY FORM, NOT COLOUR. Dashed strokes and hollow
+ *    fills carry doubt, so colour stays free to mean severity, and the
+ *    meaning survives colour-blindness and greyscale printing.
+ */
+
+@theme {
+  /* Warm graphite. Four elevation steps separated by luminance, not hue. */
+  --color-surface-0: #141413;
+  --color-surface-1: #1c1b1a;
+  --color-surface-2: #242322;
+  --color-surface-3: #2e2d2b;
+
+  /* Borders are barely there. Structure comes from luminance, not lines. */
+  --color-line: #332f2c;
+  --color-line-strong: #423d39;
+
+  --color-ink: #ebe9e6;
+  --color-ink-muted: #a8a29b;
+  --color-ink-faint: #76706a;
+
+  /* ONE accent. Selection, focus, active path. Nothing else. */
+  --color-accent: #4db6ac;
+  --color-accent-dim: #2e6f69;
+
+  /* Severity is a separate, neutral-to-hot ramp. */
+  --color-sev-none: #7a746e;
+  --color-sev-warn: #d9a441;
+  --color-sev-high: #d4704f;
+
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "Segoe UI", sans-serif;
+  --font-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, monospace;
+}
+
+:root {
+  --nf-dur: 180ms;
+  --nf-ease: cubic-bezier(0.2, 0, 0, 1);
+  --nf-dim: 0.25; /* how far unrelated content fades during a trace */
+}
+
+html,
+body {
+  background: var(--color-surface-0);
+  color: var(--color-ink);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Hop counts, timestamps and ids must align in columns. */
+.nf-num {
+  font-variant-numeric: tabular-nums;
+}
+
+/*
+ * Anything derived from the graph. Applying this class is a claim that the
+ * value is query-backed and inspectable.
+ */
+.nf-graph-value {
+  font-family: var(--font-mono);
+  font-size: 0.8125rem;
+  letter-spacing: -0.01em;
+}
+
+/* Focus is always visible and always the accent. */
+:where(a, button, [tabindex]):focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+  border-radius: 3px;
+}
+
+/* Motion explains causality. Opacity and transform only; never bounce. */
+.nf-anim {
+  transition:
+    opacity var(--nf-dur) var(--nf-ease),
+    transform var(--nf-dur) var(--nf-ease);
+}
+
+.nf-dimmed {
+  opacity: var(--nf-dim);
+}
+
+/* Translucency exists ONLY on floating layers, never on cards. */
+.nf-floating {
+  background: color-mix(in srgb, var(--color-surface-2) 92%, transparent);
+  backdrop-filter: blur(12px);
+}
+
+@media (prefers-reduced-transparency: reduce) {
+  .nf-floating {
+    background: var(--color-surface-2);
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-contrast: more) {
+  :root {
+    --nf-dim: 0.5;
+  }
+  .nf-floating {
+    background: var(--color-surface-2);
+    backdrop-filter: none;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .nf-anim,
+  .nf-sheet {
+    transition: none !important;
+  }
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Inspector sheet slides over the canvas. */
+.nf-sheet {
+  transition:
+    transform var(--nf-dur) var(--nf-ease),
+    opacity var(--nf-dur) var(--nf-ease);
+}
+
+/* Scrollbars, quietly. */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line-strong) transparent;
+}
+
+.nf-scroll::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.nf-scroll::-webkit-scrollbar-thumb {
+  background: var(--color-line-strong);
+  border-radius: 4px;
+}
+.nf-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
