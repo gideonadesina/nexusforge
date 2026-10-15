@@ -19,10 +19,20 @@ export interface InspectorProps {
   entity: ImpactedEntity | null;
   rootEntityId: string;
   maxDepth: number;
+  /** Which route is currently traced on the canvas. */
+  activePathIndex: number;
+  onSelectPath: (index: number) => void;
   onClose: () => void;
 }
 
-export function Inspector({ entity, rootEntityId, maxDepth, onClose }: InspectorProps) {
+export function Inspector({
+  entity,
+  rootEntityId,
+  maxDepth,
+  activePathIndex,
+  onSelectPath,
+  onClose,
+}: InspectorProps) {
   const ref = useRef<HTMLDivElement>(null);
 
   // Escape closes; focus moves into the sheet when it opens.
@@ -83,7 +93,7 @@ export function Inspector({ entity, rootEntityId, maxDepth, onClose }: Inspector
                 ? "A single dependency relationship connects this entity to the change, and that relationship is backed by a source record."
                 : `This conclusion was derived by following ${entity.shortestPath.edgeHops} dependency relationships. No single record states it.`}
             </p>
-            <PathChain entity={entity} />
+            <PathChain entity={entity} pathIndex={activePathIndex} />
           </Section>
 
           <Section title="Hop accounting">
@@ -104,22 +114,39 @@ export function Inspector({ entity, rootEntityId, maxDepth, onClose }: Inspector
             <Section title={`Alternative routes (${entity.allPaths.length})`}>
               <ul className="space-y-2">
                 {entity.allPaths.map((p, i) => (
-                  <li
-                    key={p.nodes.map((n) => n.id).join(">")}
-                    className="border border-[var(--color-line)] bg-[var(--color-surface-2)] p-2"
-                  >
-                    <div className="nf-graph-value nf-num mb-1 text-[var(--color-ink-faint)]">
-                      route {i + 1} · {p.edgeHops}e / {p.entityHops}n
-                    </div>
-                    <div className="nf-graph-value break-all text-xs text-[var(--color-ink-muted)]">
-                      {p.nodes.map((n) => n.id).join(" → ")}
-                    </div>
+                  <li key={p.nodes.map((n) => n.id).join(">")}>
+                    <button
+                      type="button"
+                      onClick={() => onSelectPath(i)}
+                      aria-pressed={i === activePathIndex}
+                      className={`nf-anim w-full border p-2 text-left ${
+                        i === activePathIndex
+                          ? "border-[var(--color-accent)] bg-[var(--color-surface-3)]"
+                          : "border-[var(--color-line)] bg-[var(--color-surface-2)] hover:border-[var(--color-line-strong)]"
+                      }`}
+                    >
+                      <div className="nf-graph-value nf-num mb-1 flex items-center justify-between text-[var(--color-ink-faint)]">
+                        <span>
+                          route {i + 1} · {p.edgeHops}e / {p.entityHops}n
+                        </span>
+                        {i === activePathIndex && (
+                          <span className="text-[var(--color-accent)]">tracing</span>
+                        )}
+                      </div>
+                      <div className="nf-graph-value break-all text-xs text-[var(--color-ink-muted)]">
+                        {p.nodes.map((n) => n.id).join(" → ")}
+                      </div>
+                      <div className="nf-graph-value mt-1 break-all text-[0.625rem] text-[var(--color-ink-faint)]">
+                        via {p.relationshipIds.join(", ")}
+                      </div>
+                    </button>
                   </li>
                 ))}
               </ul>
               <p className="mt-2 text-xs text-[var(--color-ink-faint)]">
-                Several independent routes reach this entity. It is still counted
-                once in the distinct impact total.
+                Several independent routes reach this entity. Select one to trace
+                it on the canvas. The entity is still counted once in the distinct
+                impact total.
               </p>
             </Section>
           )}
@@ -212,8 +239,14 @@ function ParamRow({ name, value }: { name: string; value: string }) {
  * The path chain. This is both the mobile presentation of the canvas and the
  * screen-reader equivalent of it, so it must carry the full structure.
  */
-export function PathChain({ entity }: { entity: ImpactedEntity }) {
-  const p = entity.shortestPath;
+export function PathChain({
+  entity,
+  pathIndex = 0,
+}: {
+  entity: ImpactedEntity;
+  pathIndex?: number;
+}) {
+  const p = entity.allPaths[pathIndex] ?? entity.shortestPath;
   return (
     <ol className="mt-3 space-y-1">
       {p.nodes.map((n, i) => (

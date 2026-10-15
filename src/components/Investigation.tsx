@@ -12,6 +12,8 @@ import { Canvas } from "./Canvas";
 import { Inspector, PathChain } from "./Inspector";
 import { FindingsList } from "./Findings";
 import { Proposals, AuditTrail } from "./Proposals";
+import { AgentPanel } from "./AgentPanel";
+import { Headline } from "./Headline";
 
 /**
  * The investigation view.
@@ -43,6 +45,10 @@ export function Investigation() {
   const [canDecide, setCanDecide] = useState(false);
 
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [activePathIndex, setActivePathIndex] = useState(0);
+  /** How many hop columns are visible. Reveal only; never gates data. */
+  const [revealedHops, setRevealedHops] = useState(99);
+  const [revealing, setRevealing] = useState(false);
   const [busy, setBusy] = useState(false);
   const [busyProposal, setBusyProposal] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -112,6 +118,26 @@ export function Investigation() {
       setProposals(data.proposals);
       setAuditEvents([]);
       setCanDecide(true);
+
+      // Reveal the already-computed result hop by hop. This is exploration of
+      // a finished analysis, never simulated computation: the data is already
+      // in hand and the headline states the real elapsed time.
+      const maxHop = Math.max(0, ...data.impacted.map((e) => e.shortestPath.edgeHops));
+      const reduced =
+        typeof window !== "undefined" &&
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      if (reduced || maxHop === 0) {
+        setRevealedHops(99);
+        setRevealing(false);
+      } else {
+        setRevealedHops(0);
+        setRevealing(true);
+        for (let hop = 1; hop <= maxHop; hop += 1) {
+          window.setTimeout(() => setRevealedHops(hop), hop * 220);
+        }
+        window.setTimeout(() => setRevealing(false), maxHop * 220 + 120);
+      }
 
       addLog(
         "traversal complete",
@@ -197,6 +223,19 @@ export function Investigation() {
     [analysis, selectedId],
   );
 
+  /** Selecting a different entity always starts from its shortest route. */
+  const selectEntity = useCallback((id: string) => {
+    setSelectedId((prev) => {
+      if (prev !== id) setActivePathIndex(0);
+      return id;
+    });
+  }, []);
+
+  const skipReveal = useCallback(() => {
+    setRevealedHops(99);
+    setRevealing(false);
+  }, []);
+
   const rootOption = entities.find((e) => e.id === rootId);
 
   return (
@@ -251,6 +290,13 @@ export function Investigation() {
             <InvestigationLog entries={log} />
           </section>
 
+          <section className="mt-6">
+            <h2 className="mb-2 text-xs uppercase tracking-wide text-[var(--color-ink-muted)]">
+              Agent
+            </h2>
+            <AgentPanel rootEntityId={rootId} />
+          </section>
+
           {analysis && (
             <>
               <section className="mt-6">
@@ -261,7 +307,7 @@ export function Investigation() {
                   impacted={analysis.impacted}
                   proposals={proposals}
                   selectedId={selectedId}
-                  onSelect={setSelectedId}
+                  onSelect={selectEntity}
                 />
               </section>
 
@@ -275,7 +321,7 @@ export function Investigation() {
                   canDecide={canDecide}
                   busyId={busyProposal}
                   onDecide={decide}
-                  onSelectTarget={setSelectedId}
+                  onSelectTarget={selectEntity}
                 />
               </section>
 
@@ -293,15 +339,33 @@ export function Investigation() {
         <main className="relative min-h-0 flex-1 overflow-hidden bg-[var(--color-surface-1)]">
           {analysis ? (
             <>
-              <div className="hidden h-full md:block">
-                <Canvas
-                  rootName={analysis.root.name}
-                  rootEntityId={analysis.root.entityId}
-                  rootEntityType={analysis.root.entityType}
-                  impacted={analysis.impacted}
-                  selectedId={selectedId}
-                  onSelect={setSelectedId}
+              <div className="hidden h-full flex-col md:flex">
+                <Headline
+                  analysis={analysis}
+                  proposals={proposals}
+                  revealing={revealing}
+                  onSkip={skipReveal}
                 />
+                {selectedId && (
+                  <TraceBar
+                    label={selected?.name ?? selectedId}
+                    routeCount={selected?.allPaths.length ?? 1}
+                    activeIndex={activePathIndex}
+                    onClear={() => setSelectedId(null)}
+                  />
+                )}
+                <div className="min-h-0 flex-1">
+                  <Canvas
+                    rootName={analysis.root.name}
+                    rootEntityId={analysis.root.entityId}
+                    rootEntityType={analysis.root.entityType}
+                    impacted={analysis.impacted}
+                    selectedId={selectedId}
+                    activePathIndex={activePathIndex}
+                    onSelect={selectEntity}
+                    revealedHops={revealedHops}
+                  />
+                </div>
               </div>
 
               {/* Narrow screens get the text path chain, which is also the
@@ -314,7 +378,7 @@ export function Investigation() {
                   {analysis.impacted.map((e) => (
                     <li key={e.entityId} className="border border-[var(--color-line)] p-3">
                       <div className="text-sm">{e.name}</div>
-                      <PathChain entity={e} />
+                      <PathChain entity={e} pathIndex={0} />
                     </li>
                   ))}
                 </ul>
@@ -324,6 +388,8 @@ export function Investigation() {
                 entity={selected}
                 rootEntityId={analysis.root.entityId}
                 maxDepth={analysis.maxDepth}
+                activePathIndex={activePathIndex}
+                onSelectPath={setActivePathIndex}
                 onClose={() => setSelectedId(null)}
               />
             </>
@@ -454,6 +520,42 @@ function InvestigationLog({ entries }: { entries: LogEntry[] }) {
         </li>
       ))}
     </ol>
+  );
+}
+
+/**
+ * Shown while a trace is active, so the dimmed canvas is never a mystery and
+ * there is always an obvious way back to the whole network.
+ */
+function TraceBar({
+  label,
+  routeCount,
+  activeIndex,
+  onClear,
+}: {
+  label: string;
+  routeCount: number;
+  activeIndex: number;
+  onClear: () => void;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-[var(--color-line)] bg-[var(--color-surface-2)] px-6 py-1.5">
+      <p className="truncate text-xs text-[var(--color-ink-muted)]">
+        <span className="text-[var(--color-accent)]">Tracing</span> {label}
+        {routeCount > 1 && (
+          <span className="nf-graph-value nf-num ml-2 text-[var(--color-ink-faint)]">
+            route {activeIndex + 1} of {routeCount}
+          </span>
+        )}
+      </p>
+      <button
+        type="button"
+        onClick={onClear}
+        className="shrink-0 border border-[var(--color-line-strong)] px-2 py-0.5 text-xs text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
+      >
+        Clear trace
+      </button>
+    </div>
   );
 }
 
