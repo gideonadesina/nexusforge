@@ -1,4 +1,21 @@
-   .env*
-   node_modules
-   .next
-   install.cmd
+# dependencies
+node_modules
+
+# env / secrets
+.env
+.env.*
+!.env.example
+
+# next.js
+.next
+out
+next-env.d.ts
+
+# build / test output
+dist
+coverage
+*.tsbuildinfo
+
+# local scratch
+install.cmd
+/scratch
