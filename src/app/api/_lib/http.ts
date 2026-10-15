@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { RunAuthorizationError } from "@/lib/runs/authz";
 import { InvalidTransitionError } from "@/lib/actions/actions";
 import { InvalidDepthError } from "@/lib/graph/depth";
+import { UnknownOrganizationError } from "@/lib/org/registry";
 import {
   parseRunTokens,
   withRunToken,
@@ -41,6 +42,11 @@ export function errorResponse(err: unknown): NextResponse<ApiError> {
   }
   if (err instanceof InvalidDepthError) {
     return NextResponse.json({ error: err.message, code: "INVALID_DEPTH" }, { status: 400 });
+  }
+  if (err instanceof UnknownOrganizationError) {
+    // A bad organization id is a client error, not a server fault. Fails
+    // closed: no default is substituted.
+    return NextResponse.json({ error: err.message, code: "UNKNOWN_ORGANIZATION" }, { status: 400 });
   }
 
   const message = err instanceof Error ? err.message : String(err);

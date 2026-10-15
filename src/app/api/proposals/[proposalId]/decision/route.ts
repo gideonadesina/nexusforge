@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getEnv } from "@/lib/env";
+import { orgContext } from "@/lib/org/packs";
 import {
   approveProposal,
   rejectProposal,
@@ -31,6 +31,7 @@ export const maxDuration = 60; // seconds; must be a literal for Next segment co
  */
 
 const BodySchema = z.object({
+  org: z.string().optional(),
   decision: z.enum(["APPROVED", "REJECTED"]),
   note: z.string().max(500).optional(),
 });
@@ -54,7 +55,7 @@ export async function POST(
       );
     }
 
-    const graphName = getEnv().FALKORDB_GRAPH;
+    const { graphName } = orgContext(parsed.data.org);
 
     // Resolve which run owns this proposal so we can look up the right token.
     const existing = await getProposal(graphName, proposalId);

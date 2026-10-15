@@ -6,10 +6,10 @@ Entry for [Graph Hacks 2026](https://www.wemakedevs.org/hackathons/falkordb)
 (WeMakeDevs × FalkorDB) — targeting **Track 01: Agents That Act on Connected
 Data** and **Track 03: Company Brain**.
 
-> **Stage 1 status.** This repository currently contains a *verified walking
-> skeleton*, not a finished product. Everything described under "What actually
-> works" below is backed by tests that run against a real FalkorDB instance.
-> Nothing else is claimed.
+**Live: <https://nexusforge-ten.vercel.app>**
+
+> Everything described under "What actually works" is backed by tests that run
+> against a real FalkorDB instance. Nothing else is claimed.
 
 ---
 
@@ -29,18 +29,52 @@ NexusForge answers:
 It is deliberately **not** a school management app. Education is the first
 demonstration domain; the reasoning engine contains no school vocabulary.
 
-### The demonstration scenario
+### The flagship demonstration — Northstar Labs
 
-> *"Our only SS2/SS3 physics teacher resigns effective Friday. What's affected?"*
+> *"If Northstar Labs' AI inference gateway becomes unavailable, what is
+> exposed, and what blocks a safe recovery?"*
 
-Rooted at the resigning teacher, the engine discovers **10 distinct exposed
-entities via 13 dependency paths** — classes, timetable slots, laboratory
-responsibilities, the WAEC mock examination, and an examinations committee —
-each with its traversal path and source evidence.
+Rooted at the gateway, the engine discovers **10 distinct exposed entities via
+12 dependency paths** in ~40 ms.
 
-It **excludes** an `SS1 Physics` class that shares the subject name but is
-taught by a different teacher. That exclusion is the point: a keyword search
-would return it, a dependency traversal does not.
+The finding that matters is four hops away and has **no direct edge** to the
+gateway:
+
+```
+Meridian Health MSA clause 8.2
+  -> quarterly compliance evidence
+    -> audit event processor
+      -> inference.events (topic)
+        -> AI Inference Gateway
+```
+
+An enterprise contract is exposed by an inference outage, through an
+asynchronous event topic nobody would check first. The traversal finds it; a
+service-dependency list would not.
+
+The same scenario also demonstrates what the system refuses to do:
+
+- **An ownership gap.** The on-call assignment covering failover points at an
+  engineer who left, with no deputy recorded. NexusForge reports the
+  unresolved responsibility and does **not** invent a replacement.
+- **An uncertain recovery constraint.** The external failover plan cites an
+  architecture decision whose current status cannot be found, so the finding
+  is marked `MISSING` evidence and `supported: false` — one hop away, but
+  deliberately **not** `OBSERVED`. The proposed action is to close the gap,
+  not to route around it.
+- **Decoys.** Billing and model-registry services are plausible neighbours in
+  an AI company. They have no dependency route to the gateway and are
+  excluded.
+
+### Secondary demonstration — education
+
+A synthetic school (`Northgate Secondary School`) runs on the **same engine
+with zero changes**: 10 entities via 13 paths from a resigning physics
+teacher, with an `SS1 Physics` decoy correctly excluded. It exists to prove
+the engine is not sector-specific, and doubles as a regression fixture.
+
+Organizations are **isolated in separate FalkorDB graphs**. The browser sends
+an allowlisted organization id and can never supply a graph name.
 
 ---
 
@@ -60,7 +94,7 @@ suite.
 
 ## What actually works
 
-### IMPLEMENTED AND TESTED (real database, 152 passing tests)
+### IMPLEMENTED AND TESTED (real database)
 
 **Graph reasoning (Stage 1)**
 - Connection to FalkorDB Cloud with Zod-validated configuration
@@ -89,6 +123,19 @@ suite.
 - **Strict depth validation** — fractions, negatives, zero, out-of-range, NaN,
   Infinity, and all string input rejected before any Cypher is constructed
 
+**Interface and API (Stage 3)**
+- Five server routes: health, entities, analysis, run read, proposal decision,
+  plus `ask` and `agent`
+- Investigation UI with a hop-column canvas, **real directed edges** keyed by
+  actual `DEPENDS_ON` relationship ids, Trace highlighting, and an Inspector
+  showing the Cypher template, parameters and verbatim evidence
+- **Organization isolation** — one FalkorDB graph per organization, resolved
+  through a server-side allowlist; the browser never supplies a graph name
+- **Ask NexusForge** — suggested questions generated from the loaded graph,
+  plus free text, answered deterministically without a language model
+- Constrained agent loop with typed Zod-validated tools, budgets, timeouts and
+  a kill switch; **no tool can approve, reject or run Cypher**
+
 **Action workflow (Stage 2B)**
 - **Correct claim classification** — `OBSERVED` only for a single relationship
   backed by resolving evidence; transitive conclusions are `DERIVED`
@@ -102,12 +149,17 @@ suite.
 - Append-only `:AuditEvent` per successful transition, consistent with state
   and never duplicated on retry
 
-### NOT IMPLEMENTED (deliberately — later stages)
+### NOT IMPLEMENTED (deliberately)
 
 Qualification and availability rules · replacement-candidate ranking ·
-contradiction detection · LLM integration · any user interface · a second
-domain pack · any HTTP surface (the cookie transport is designed and unit
-tested but **not wired to a route**).
+contradiction detection · enterprise identity or role-based authorization ·
+external action execution.
+
+**The OpenAI planner is built but disabled by default.** It requires both a
+key and `NF_AGENT_LLM=on`, so a key alone can never start billing. The
+deployed site runs the deterministic path only. One controlled paid test was
+run locally against `gpt-6-luna`: 5 model requests, 4,711 tokens, 32.7s, and
+the safety invariants held.
 
 **Explicitly NOT modelled:** `REVIEWED`, `EXECUTED`, and `VERIFIED` proposal
 states. NexusForge performs no external action and cannot confirm one, so
@@ -117,8 +169,9 @@ those states would be a lie encoded in the schema.
 > owner decided to proceed. Nothing has been executed, scheduled,
 > communicated, or verified. Every transition returns `executed: false`.
 
-**There is no UI.** The page at `/` is a static placeholder. The system is
-exercised from the CLI and the test suite.
+**This is demonstration isolation, not enterprise multitenancy.** There is no
+per-user identity, and an operator with instance credentials can read every
+graph.
 
 ---
 
@@ -145,7 +198,10 @@ Copy `.env.example` to `.env.local` and fill in your instance details:
 | `FALKORDB_USERNAME` | yes | Defaults to `default` |
 | `FALKORDB_PASSWORD` | yes | |
 | `FALKORDB_TLS` | no | `false` on the Cloud free tier, which has no TLS |
-| `FALKORDB_GRAPH` | no | Defaults to `nf_demo_education`. **Must start with `nf_`.** |
+| `FALKORDB_GRAPH` | no | Fallback graph. Per-organization graphs come from the server-side allowlist in `src/lib/org/registry.ts`. **Must start with `nf_`.** |
+| `OPENAI_API_KEY` | no | Only needed for the optional model planner. |
+| `NF_AGENT_LLM` | no | `on` enables the model planner. Default `off`. |
+| `NF_AGENT_ENABLED` | no | `false` is a kill switch for all agent activity. |
 
 `.env.local` is gitignored and must never be committed.
 

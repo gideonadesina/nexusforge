@@ -4,11 +4,30 @@ import {
   SOURCES,
   ENTITIES,
   DEPENDENCIES,
+  SCENARIO_ROOT_ENTITY_ID,
+  DECOY_ENTITY_IDS,
   type SeedSource,
   type SeedEntity,
   type SeedDependency,
 } from "../../domain/education/seed-data";
+import type { DomainPack } from "./domain-pack";
 import { GET_SEED_MARKER } from "./queries";
+
+/**
+ * The education pack, expressed in the generic shape.
+ *
+ * Kept as the DEFAULT argument everywhere so existing callers and the whole
+ * Stage 1-3 test suite keep working untouched while a second sector is added.
+ */
+export const EDUCATION_PACK: DomainPack = {
+  domain: DOMAIN,
+  seedVersion: "edu-v1",
+  sources: SOURCES,
+  entities: ENTITIES,
+  dependencies: DEPENDENCIES,
+  scenarioRootId: SCENARIO_ROOT_ENTITY_ID,
+  decoyEntityIds: DECOY_ENTITY_IDS,
+};
 
 /**
  * Deterministic, idempotent seeding of the synthetic demonstration graph.
@@ -61,7 +80,9 @@ export function validateSeedData(
   sources: SeedSource[] = SOURCES,
   entities: SeedEntity[] = ENTITIES,
   deps: SeedDependency[] = DEPENDENCIES,
+  danglingSourceIds: readonly string[] = [],
 ): void {
+  const allowedDangling = new Set(danglingSourceIds);
   const sourceIds = new Set(sources.map((s) => s.id));
   const entityIds = new Set(entities.map((e) => e.id));
 
@@ -81,7 +102,7 @@ export function validateSeedData(
   for (const d of deps) {
     if (!entityIds.has(d.from)) throw new Error(`Dependency ${d.id} has unknown 'from' ${d.from}.`);
     if (!entityIds.has(d.to)) throw new Error(`Dependency ${d.id} has unknown 'to' ${d.to}.`);
-    if (!sourceIds.has(d.sourceId)) {
+    if (!sourceIds.has(d.sourceId) && !allowedDangling.has(d.sourceId)) {
       throw new Error(`Dependency ${d.id} references unknown source ${d.sourceId}.`);
     }
     if (d.from === d.to) throw new Error(`Dependency ${d.id} is a self-loop.`);
@@ -89,12 +110,12 @@ export function validateSeedData(
 }
 
 /** Expected census implied by the domain pack. */
-export function expectedCensus(): GraphCensus {
+export function expectedCensus(pack: DomainPack = EDUCATION_PACK): GraphCensus {
   return {
-    entities: ENTITIES.length,
-    sources: SOURCES.length,
-    dependsOn: DEPENDENCIES.length,
-    evidencedBy: evidenceLinks(ENTITIES).length,
+    entities: pack.entities.length,
+    sources: pack.sources.length,
+    dependsOn: pack.dependencies.length,
+    evidencedBy: evidenceLinks(pack.entities).length,
   };
 }
 
@@ -136,8 +157,11 @@ async function ensureIndexes(graphName: string): Promise<void> {
  * Returns the real post-seed census read back from the database, not the
  * values we intended to write.
  */
-export async function seedEducationGraph(graphName: string): Promise<SeedReport> {
-  validateSeedData();
+export async function seedGraph(
+  graphName: string,
+  pack: DomainPack = EDUCATION_PACK,
+): Promise<SeedReport> {
+  validateSeedData(pack.sources, pack.entities, pack.dependencies, pack.danglingSourceIds ?? []);
 
   let nodesCreated = 0;
   let relationshipsCreated = 0;
@@ -155,7 +179,7 @@ SET s.reference  = row.reference,
     s.sourceType = row.sourceType,
     s.synthetic  = true
 `.trim(),
-    { params: { rows: SOURCES } },
+    { params: { rows: pack.sources } },
   );
   nodesCreated += statOf(sourcesRes.metadata, "Nodes created");
 
@@ -173,8 +197,8 @@ SET e.type         = row.type,
 `.trim(),
     {
       params: {
-        domain: DOMAIN,
-        rows: ENTITIES.map((e) => ({
+        domain: pack.domain,
+        rows: pack.entities.map((e) => ({
           id: e.id,
           type: e.type,
           name: e.name,
@@ -194,7 +218,7 @@ MATCH (e:Entity {id: row.entityId})
 MATCH (s:Source {id: row.sourceId})
 MERGE (e)-[:EVIDENCED_BY]->(s)
 `.trim(),
-    { params: { rows: evidenceLinks(ENTITIES) } },
+    { params: { rows: evidenceLinks(pack.entities) } },
   );
   relationshipsCreated += statOf(evidenceRes.metadata, "Relationships created");
 
@@ -209,7 +233,7 @@ MERGE (a)-[r:DEPENDS_ON {id: row.id}]->(b)
 SET r.kind     = row.kind,
     r.sourceId = row.sourceId
 `.trim(),
-    { params: { rows: DEPENDENCIES } },
+    { params: { rows: pack.dependencies } },
   );
   relationshipsCreated += statOf(depsRes.metadata, "Relationships created");
 
@@ -223,28 +247,36 @@ SET m.seedVersion = $seedVersion,
     m.complete    = true,
     m.synthetic   = true
 `.trim(),
-    { params: { seedVersion: SEED_VERSION, domain: DOMAIN } },
+    { params: { seedVersion: pack.seedVersion, domain: pack.domain } },
   );
 
   return {
     graphName,
-    seedVersion: SEED_VERSION,
+    seedVersion: pack.seedVersion,
     census: await census(graphName),
     nodesCreated,
     relationshipsCreated,
-    expected: expectedCensus(),
+    expected: expectedCensus(pack),
   };
 }
 
+/** Back-compatible wrapper. The education pack is the default. */
+export function seedEducationGraph(graphName: string): Promise<SeedReport> {
+  return seedGraph(graphName, EDUCATION_PACK);
+}
+
 /** True when a complete seed of the current version is present. */
-export async function isSeeded(graphName: string): Promise<boolean> {
+export async function isSeeded(
+  graphName: string,
+  pack: DomainPack = EDUCATION_PACK,
+): Promise<boolean> {
   try {
     const r = await roQuery<{ seedVersion: string; complete: boolean }>(
       graphName,
       GET_SEED_MARKER,
     );
     const row = r.data[0];
-    return row?.complete === true && row.seedVersion === SEED_VERSION;
+    return row?.complete === true && row.seedVersion === pack.seedVersion;
   } catch {
     // A missing graph is a legitimate "not seeded", not an error.
     return false;
@@ -255,12 +287,15 @@ export async function isSeeded(graphName: string): Promise<boolean> {
  * Re-seed path for a missing graph: the free tier reclaims idle instances, so
  * the demonstration must be able to rebuild itself from the domain pack.
  */
-export async function ensureSeeded(graphName: string): Promise<{
+export async function ensureSeeded(
+  graphName: string,
+  pack: DomainPack = EDUCATION_PACK,
+): Promise<{
   alreadySeeded: boolean;
   report: SeedReport | null;
 }> {
-  if (await isSeeded(graphName)) {
+  if (await isSeeded(graphName, pack)) {
     return { alreadySeeded: true, report: null };
   }
-  return { alreadySeeded: false, report: await seedEducationGraph(graphName) };
+  return { alreadySeeded: false, report: await seedGraph(graphName, pack) };
 }

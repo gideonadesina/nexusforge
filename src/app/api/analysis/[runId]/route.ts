@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
-import { getEnv } from "@/lib/env";
+import { orgContext } from "@/lib/org/packs";
+import { publicView } from "@/lib/org/registry";
 import { getRun, listFindings } from "@/lib/runs/persist";
 import { listProposals, listAuditEvents } from "@/lib/actions/actions";
 import { errorResponse, readRunToken } from "../../_lib/http";
@@ -25,7 +26,8 @@ export async function GET(
   const started = Date.now();
   try {
     const { runId } = await context.params;
-    const graphName = getEnv().FALKORDB_GRAPH;
+    const orgId = new URL(req.url).searchParams.get("org");
+    const { org, graphName } = orgContext(orgId);
 
     const run = await getRun(graphName, runId);
     if (!run) {
@@ -42,6 +44,7 @@ export async function GET(
     ]);
 
     return NextResponse.json({
+      organization: publicView(org),
       run,
       findings,
       proposals,

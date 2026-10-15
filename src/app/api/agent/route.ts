@@ -1,6 +1,6 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getEnv } from "@/lib/env";
+import { orgContext } from "@/lib/org/packs";
 import { runAgent, agentEnabled, AgentDisabledError, globalCallsUsed } from "@/lib/agent/loop";
 import { scriptedPlanner, llmConfigured } from "@/lib/agent/planners";
 import { toolCatalogue } from "@/lib/agent/tools";
@@ -19,6 +19,7 @@ export const maxDuration = 60; // seconds; must be a literal for Next segment co
  */
 
 const BodySchema = z.object({
+  org: z.string().optional(),
   rootEntityId: z.string().min(1),
   goal: z.string().max(300).optional(),
 });
@@ -52,7 +53,7 @@ export async function POST(req: Request) {
       );
     }
 
-    const graphName = getEnv().FALKORDB_GRAPH;
+    const { graphName } = orgContext(parsed.data.org);
     const goal =
       parsed.data.goal ??
       `Determine what is exposed by a change to ${parsed.data.rootEntityId}, and on what evidence.`;

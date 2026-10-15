@@ -42,6 +42,21 @@ export interface SeedDependency {
 
 export const DOMAIN = "education";
 
+/**
+ * Identifies the loaded demonstration organization in the UI.
+ *
+ * Stated plainly as synthetic so nobody can read the product as having access
+ * to a real institution's internal data.
+ */
+export const ORGANIZATION = {
+  id: "org_demo_education",
+  label: "Northgate Secondary School",
+  sector: "Education",
+  synthetic: true,
+  notice:
+    "Synthetic demonstration organization. No real school, person, document or examination is represented.",
+} as const;
+
 export const SOURCES: SeedSource[] = [
   {
     id: "src_resignation_okonkwo_2026_10_12",

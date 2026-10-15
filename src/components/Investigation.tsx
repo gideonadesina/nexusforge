@@ -14,6 +14,7 @@ import { FindingsList } from "./Findings";
 import { Proposals, AuditTrail } from "./Proposals";
 import { AgentPanel } from "./AgentPanel";
 import { Headline } from "./Headline";
+import { AskPanel } from "./AskPanel";
 
 /**
  * The investigation view.
@@ -34,7 +35,18 @@ interface LogEntry {
   receipt?: string;
 }
 
+interface OrgInfo {
+  id: string;
+  label: string;
+  sector: string;
+  notice: string;
+  headline: string;
+}
+
 export function Investigation() {
+  const [orgId, setOrgId] = useState<string>("northstar");
+  const [org, setOrg] = useState<OrgInfo | null>(null);
+  const [orgs, setOrgs] = useState<OrgInfo[]>([]);
   const [entities, setEntities] = useState<EntityOption[]>([]);
   const [rootId, setRootId] = useState<string>("");
   const [depth, setDepth] = useState<number>(6);
@@ -66,12 +78,47 @@ export function Investigation() {
     ]);
   }, []);
 
-  // Load the entity list from the graph so the picker is not hardcoded.
+  // Load the list of organizations once, for the switcher.
   useEffect(() => {
     let cancelled = false;
     (async () => {
       try {
-        const res = await fetch("/api/entities");
+        const res = await fetch("/api/ask?org=northstar");
+        const body = await res.json();
+        if (cancelled || !res.ok) return;
+        setOrgs(body.organizations ?? []);
+      } catch {
+        /* the switcher is optional; the investigation works without it */
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  /**
+   * Load the selected organization's entities.
+   *
+   * Switching organizations CLEARS every piece of investigation state first,
+   * so no finding, proposal, trace or audit entry from one organization can
+   * survive into another.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    setAnalysis(null);
+    setProposals([]);
+    setAuditEvents([]);
+    setSelectedId(null);
+    setActivePathIndex(0);
+    setCanDecide(false);
+    setEntities([]);
+    setRootId("");
+    setLog([]);
+    setError(null);
+
+    (async () => {
+      try {
+        const res = await fetch(`/api/entities?org=${encodeURIComponent(orgId)}`);
         const body = await res.json();
         if (cancelled) return;
         if (!res.ok) {
@@ -79,12 +126,13 @@ export function Investigation() {
           return;
         }
         setEntities(body.entities);
+        setOrg(body.organization ?? null);
         const first = body.entities.find((e: EntityOption) => e.dependentCount > 0);
         if (first) setRootId(first.id);
         addLog(
           "graph connected",
-          `${body.entities.length} entities in ${body.graphName}`,
-          `GET /api/entities → 200\ngraph: ${body.graphName}\nentities: ${body.entities.length}`,
+          `${body.entities.length} entities · ${body.organization?.label ?? orgId}`,
+          `GET /api/entities?org=${orgId} → 200\nentities: ${body.entities.length}`,
         );
       } catch (err) {
         if (!cancelled) setError(err instanceof Error ? err.message : String(err));
@@ -93,7 +141,7 @@ export function Investigation() {
     return () => {
       cancelled = true;
     };
-  }, [addLog]);
+  }, [orgId, addLog]);
 
   const runAnalysis = useCallback(async () => {
     if (!rootId) return;
@@ -105,7 +153,7 @@ export function Investigation() {
       const res = await fetch("/api/analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rootEntityId: rootId, maxDepth: depth }),
+        body: JSON.stringify({ org: orgId, rootEntityId: rootId, maxDepth: depth }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -173,7 +221,7 @@ export function Investigation() {
     } finally {
       setBusy(false);
     }
-  }, [rootId, depth, addLog]);
+  }, [rootId, depth, addLog, orgId]);
 
   const decide = useCallback(
     async (proposalId: string, decision: "APPROVED" | "REJECTED") => {
@@ -183,7 +231,7 @@ export function Investigation() {
         const res = await fetch(`/api/proposals/${encodeURIComponent(proposalId)}/decision`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ decision }),
+          body: JSON.stringify({ org: orgId, decision }),
         });
         const body = await res.json();
         if (!res.ok) {
@@ -215,7 +263,7 @@ export function Investigation() {
         setBusyProposal(null);
       }
     },
-    [addLog],
+    [addLog, orgId],
   );
 
   const selected: ImpactedEntity | null = useMemo(
@@ -241,6 +289,10 @@ export function Investigation() {
   return (
     <div className="flex h-dvh flex-col bg-[var(--color-surface-0)]">
       <TopBar
+        orgId={orgId}
+        orgs={orgs}
+        org={org}
+        onOrgChange={setOrgId}
         entities={entities}
         rootId={rootId}
         onRootChange={setRootId}
@@ -263,7 +315,31 @@ export function Investigation() {
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* LEFT — narrative */}
         <div className="nf-scroll w-full shrink-0 overflow-y-auto border-[var(--color-line)] p-5 lg:w-[23rem] lg:border-r">
+          {org && (
+            <section className="mb-5 border border-[var(--color-line)] bg-[var(--color-surface-1)] p-3">
+              <div className="text-sm font-medium">{org.label}</div>
+              <div className="text-[0.6875rem] text-[var(--color-ink-faint)]">{org.sector}</div>
+              <p className="mt-1.5 text-[0.6875rem] leading-relaxed text-[var(--color-ink-faint)]">
+                {org.notice}
+              </p>
+            </section>
+          )}
+
           <section>
+            <h2 className="mb-2 text-xs uppercase tracking-wide text-[var(--color-ink-muted)]">
+              Ask NexusForge
+            </h2>
+            <AskPanel
+              orgId={orgId}
+              onFocusEntities={(ids) => {
+                const first = ids[0];
+                if (first) setSelectedId(first);
+              }}
+              onInvestigate={(id) => setRootId(id)}
+            />
+          </section>
+
+          <section className="mt-6">
             <h2 className="text-xs uppercase tracking-wide text-[var(--color-ink-muted)]">
               Question
             </h2>
@@ -403,6 +479,10 @@ export function Investigation() {
 }
 
 function TopBar({
+  orgId,
+  orgs,
+  org,
+  onOrgChange,
   entities,
   rootId,
   onRootChange,
@@ -412,6 +492,10 @@ function TopBar({
   busy,
   analysis,
 }: {
+  orgId: string;
+  orgs: OrgInfo[];
+  org: OrgInfo | null;
+  onOrgChange: (v: string) => void;
   entities: EntityOption[];
   rootId: string;
   onRootChange: (v: string) => void;
@@ -426,9 +510,25 @@ function TopBar({
       <div className="mr-2">
         <div className="text-sm font-medium tracking-tight">NexusForge</div>
         <div className="text-[0.6875rem] text-[var(--color-ink-faint)]">
-          organizational dependency intelligence
+          evidence-backed organizational intelligence
         </div>
       </div>
+
+      <label className="flex items-center gap-2 text-xs text-[var(--color-ink-muted)]">
+        <span>Organization</span>
+        <select
+          value={orgId}
+          onChange={(e) => onOrgChange(e.target.value)}
+          className="border border-[var(--color-line-strong)] bg-[var(--color-surface-2)] px-2 py-1 text-[var(--color-ink)]"
+        >
+          {orgs.length === 0 && <option value={orgId}>loading…</option>}
+          {orgs.map((o) => (
+            <option key={o.id} value={o.id}>
+              {o.label} · {o.sector}
+            </option>
+          ))}
+        </select>
+      </label>
 
       <label className="flex items-center gap-2 text-xs text-[var(--color-ink-muted)]">
         <span>Changed entity</span>

@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { getEnv } from "@/lib/env";
+import { orgContext } from "@/lib/org/packs";
+import { publicView } from "@/lib/org/registry";
 import { ensureSeeded } from "@/lib/graph/seed";
 import { runAndPersistAnalysis } from "@/lib/runs/analyse-and-persist";
 import { proposeActions } from "@/lib/actions/actions";
@@ -26,6 +27,8 @@ export const maxDuration = 60; // seconds; must be a literal for Next segment co
  */
 
 const BodySchema = z.object({
+  /** Allowlisted organization id. NEVER a graph name. */
+  org: z.string().optional(),
   rootEntityId: z.string().min(1, "rootEntityId is required"),
   // Depth is the one value interpolated into Cypher, so it is validated by
   // the same strict schema the engine uses. No coercion: a JSON string is
@@ -48,10 +51,10 @@ export async function POST(req: Request) {
       );
     }
 
-    const graphName = getEnv().FALKORDB_GRAPH;
+    const { org, pack, graphName } = orgContext(parsed.data.org);
     // The free tier can reclaim an idle instance, so rebuild the synthetic
     // organization if it is missing. Never silently fabricates findings.
-    await ensureSeeded(graphName);
+    await ensureSeeded(graphName, pack);
 
     const result = await runAndPersistAnalysis(graphName, parsed.data.rootEntityId, {
       ...(parsed.data.maxDepth !== undefined ? { maxDepth: parsed.data.maxDepth } : {}),
@@ -69,6 +72,7 @@ export async function POST(req: Request) {
     ]);
 
     const res = NextResponse.json({
+      organization: publicView(org),
       analysisRunId: result.run.analysisRunId,
       root: {
         entityId: result.analysis.rootEntityId,
