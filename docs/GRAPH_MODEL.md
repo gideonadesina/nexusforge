@@ -174,6 +174,72 @@ No string is ever accepted, so `"3 OR 1=1"` and `"2; MATCH ..."` are rejected
 structurally rather than filtered. Tests assert that **zero** graph queries are
 issued when depth is invalid.
 
+## Action layer (Stage 2B)
+
+### `:ActionProposal`
+
+| Property | Meaning |
+|---|---|
+| `proposalId` | Deterministic: `${runId}::${ruleId}::${entityId}`. MERGE key. |
+| `actionType` | Domain-neutral verb, e.g. `REASSIGN_DEPENDENCY`. |
+| `targetEntityId` | Entity the action would act on. |
+| `findingId` | The finding that justifies it. |
+| `state` | `PROPOSED` / `APPROVED` / `REJECTED`. Nothing else exists. |
+| `ruleId` | Versioned generating rule. |
+| `rationale` | Deterministic text built from graph facts. |
+| `claim` | Always `ASSESSED` — a recommendation is a judgment. |
+| `evidenceStatus` / `supported` | Inherited from the justifying finding. |
+| `decidedBy` | `DEMO_RUN_OWNER`, or null. |
+
+```
+(:ActionProposal)-[:PROPOSED_IN]->(:AnalysisRun)
+(:ActionProposal)-[:ADDRESSES]->(:Finding)
+(:ActionProposal)-[:TARGETS]->(:Entity)
+```
+
+The `ADDRESSES` edge requires the Finding to exist, so a proposal can never
+attach to a finding that was not actually computed.
+
+### `:AuditEvent` (append-only)
+
+| Property | Meaning |
+|---|---|
+| `auditEventId` | Deterministic: `${proposalId}::${toState}`. |
+| `eventType` | `PROPOSAL_APPROVED` / `PROPOSAL_REJECTED`. |
+| `fromState` / `toState` | The recorded transition. |
+| `at` / `actor` / `note` | Timestamp, `DEMO_RUN_OWNER`, optional note. |
+
+```
+(:AuditEvent)-[:ABOUT_PROPOSAL]->(:ActionProposal)
+(:AuditEvent)-[:IN_RUN]->(:AnalysisRun)
+```
+
+There is no update or delete path for audit events.
+
+### The transition statement
+
+Ownership, run membership, expected prior state, the state change, and the
+audit event are **one statement**, so they cannot disagree:
+
+```cypher
+MATCH (run:AnalysisRun {analysisRunId: $runId, ownerTokenHash: $ownerTokenHash})
+MATCH (p:ActionProposal {proposalId: $proposalId})-[:PROPOSED_IN]->(run)
+WHERE p.state = $fromState
+SET p.state = $toState, p.decidedAt = $now, p.decidedBy = $actor
+CREATE (a:AuditEvent { auditEventId: $auditEventId, fromState: $fromState,
+                       toState: $toState, at: $now, actor: $actor })
+MERGE (a)-[:ABOUT_PROPOSAL]->(p)
+MERGE (a)-[:IN_RUN]->(run)
+RETURN a.auditEventId AS auditEventId, p.state AS toState
+```
+
+A repeated call finds `state <> 'PROPOSED'`, matches nothing, and creates no
+second audit event. A wrong token fails the first MATCH identically.
+
+> **Approval is not execution.** `APPROVED` records a demo owner's decision.
+> `EXECUTED` and `VERIFIED` are not modelled, because the system performs no
+> external action and cannot confirm one.
+
 ## Claim classification
 
 Every finding carries a claim label:

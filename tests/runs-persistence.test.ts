@@ -104,7 +104,13 @@ describe("findings are computed, not fabricated", () => {
   it("stores claim classification and rule version on every finding", async () => {
     const findings = await listFindings(graphName, runA.run.analysisRunId);
     for (const f of findings) {
-      expect(f.claim).toBe("OBSERVED");
+      expect(["OBSERVED", "DERIVED"]).toContain(f.claim);
+      // Only a directly evidenced single relationship may be OBSERVED.
+      if (f.claim === "OBSERVED") {
+        expect(f.edgeHops).toBe(1);
+        expect(f.evidenceStatus).toBe("COMPLETE");
+      }
+      expect(f.supported).toBe(true);
       expect(f.ruleId).toMatch(/@\d+$/);
       expect(f.verificationStatus).toBe("UNVERIFIED");
     }

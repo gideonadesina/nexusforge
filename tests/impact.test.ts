@@ -136,11 +136,39 @@ describe("Test 3 — provenance", () => {
     expect(analysis.unevidencedEntityIds).toEqual([]);
   });
 
-  it("labels every finding OBSERVED with a versioned rule id", () => {
+  it("classifies claims by how they were established, not uniformly", () => {
+    // Stage 2A wrongly labelled everything OBSERVED. A transitive conclusion
+    // is DERIVED; only a directly evidenced single relationship is OBSERVED.
     for (const e of analysis.impacted) {
-      expect(e.claim).toBe("OBSERVED");
       expect(e.ruleId).toMatch(/@\d+$/);
+      if (e.claim === "OBSERVED") {
+        expect(e.shortestPath.edgeHops).toBe(1);
+        expect(e.evidenceStatus).toBe("COMPLETE");
+        expect(e.supported).toBe(true);
+      } else {
+        expect(e.claim).toBe("DERIVED");
+      }
     }
+
+    // The seeded scenario must contain both kinds, or the test proves nothing.
+    const claims = new Set(analysis.impacted.map((e) => e.claim));
+    expect(claims.has("OBSERVED")).toBe(true);
+    expect(claims.has("DERIVED")).toBe(true);
+  });
+
+  it("marks every multi-hop exposure DERIVED", () => {
+    for (const e of analysis.impacted) {
+      if (e.shortestPath.edgeHops > 1) expect(e.claim).toBe("DERIVED");
+    }
+  });
+
+  it("reports complete evidence and support for the fully evidenced seed", () => {
+    for (const e of analysis.impacted) {
+      expect(e.evidenceStatus).toBe("COMPLETE");
+      expect(e.supported).toBe(true);
+      expect(e.unresolvedSourceIds).toEqual([]);
+    }
+    expect(analysis.unevidencedEntityIds).toEqual([]);
   });
 });
 

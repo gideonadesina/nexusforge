@@ -5,7 +5,7 @@
  * finding is "an entity exposed by that change". Neither type mentions a
  * school, and neither should ever need to.
  */
-import type { ClaimClass, RuleId } from "../engine/types";
+import type { ClaimClass, RuleId, EvidenceStatus } from "../engine/types";
 
 export type RunStatus = "PENDING" | "COMPLETED" | "FAILED";
 
@@ -52,6 +52,12 @@ export interface FindingRecord {
   claim: ClaimClass;
   ruleId: RuleId;
   verificationStatus: VerificationStatus;
+  /** Whether the evidence backing this finding actually resolves. */
+  evidenceStatus: EvidenceStatus;
+  /** False when the best route has unresolved evidence. */
+  supported: boolean;
+  /** Explicit record of evidence gaps. Never silently filled in. */
+  unresolvedSourceIds: string[];
   /** Shortest route, as ordered entity ids. */
   shortestPathEntityIds: string[];
   /** DEPENDS_ON edge ids traversed by the shortest route. */

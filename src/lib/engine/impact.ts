@@ -12,6 +12,8 @@ import type {
   DependencyPath,
   PathNode,
   EvidenceRef,
+  EvidenceStatus,
+  ClaimClass,
 } from "./types";
 
 /**
@@ -67,6 +69,86 @@ function countEntityHops(intermediary: boolean[], edgeHops: number): number {
 /** Stable signature so path ordering is deterministic across runs. */
 function pathSignature(ids: string[]): string {
   return ids.join(">");
+}
+
+/** Rank evidence statuses so "best available route" is well defined. */
+const EVIDENCE_RANK: Record<EvidenceStatus, number> = {
+  COMPLETE: 0,
+  PARTIAL: 1,
+  MISSING: 2,
+};
+
+/**
+ * Classify an exposure from the routes that reach it.
+ *
+ * Two independent questions, deliberately not conflated:
+ *
+ * 1. HOW was it established? A single relationship read straight out of the
+ *    graph is OBSERVED. Two or more relationships chained together is
+ *    DERIVED -- transitive reachability is a conclusion produced by this
+ *    rule, not a fact any single record asserts.
+ *
+ * 2. Is it SUPPORTED? Only if every edge on the chosen route resolves to a
+ *    real Source node. A one-hop dependency whose evidence does not resolve
+ *    is NOT an observed fact, so it degrades to DERIVED and is marked
+ *    unsupported.
+ *
+ * The entity is judged on its best-evidenced route, with the shortest route
+ * breaking ties -- that is the strongest honest claim available.
+ */
+export function classifyExposure(allPaths: DependencyPath[]): {
+  claim: ClaimClass;
+  evidenceStatus: EvidenceStatus;
+  supported: boolean;
+  unresolvedSourceIds: string[];
+} {
+  const best = [...allPaths].sort(
+    (a, b) =>
+      EVIDENCE_RANK[a.evidenceStatus] - EVIDENCE_RANK[b.evidenceStatus] ||
+      a.edgeHops - b.edgeHops,
+  )[0];
+
+  const unresolvedSourceIds = [
+    ...new Set(allPaths.flatMap((p) => p.unresolvedSourceIds)),
+  ].sort();
+
+  if (!best) {
+    // No route at all should be impossible here, but never claim support we
+    // cannot demonstrate.
+    return {
+      claim: "DERIVED",
+      evidenceStatus: "MISSING",
+      supported: false,
+      unresolvedSourceIds,
+    };
+  }
+
+  const fullyEvidenced = best.evidenceStatus === "COMPLETE";
+  const directlyObserved = best.edgeHops === 1 && fullyEvidenced;
+
+  return {
+    claim: directlyObserved ? "OBSERVED" : "DERIVED",
+    evidenceStatus: best.evidenceStatus,
+    supported: fullyEvidenced,
+    unresolvedSourceIds,
+  };
+}
+
+/**
+ * Invariant guard: an unsupported finding may never be recorded as verified.
+ *
+ * Verification is not implemented, so this exists to make the rule explicit
+ * and enforceable now rather than after someone adds a verification path.
+ */
+export function assertVerifiableOnlyIfSupported(
+  supported: boolean,
+  verificationStatus: string,
+): void {
+  if (verificationStatus === "VERIFIED" && !supported) {
+    throw new Error(
+      "Refusing to mark an unsupported finding VERIFIED: its evidence does not resolve.",
+    );
+  }
 }
 
 function buildPathNodes(row: ImpactRow): PathNode[] {
@@ -144,23 +226,35 @@ export async function analyseImpact(
     const nodes = buildPathNodes(row);
     const sig = pathSignature(row.pathIds);
 
+    // Evidence is assessed per EDGE, because a route is only as supported as
+    // its weakest link. An edge either names a source that resolves to a real
+    // Source node, or it is an evidence gap that must be reported as one.
     const pathEvidence: EvidenceRef[] = [];
-    let missingEvidence = false;
-    for (const sid of row.pathSourceIds) {
+    const unresolved: string[] = [];
+    let resolvedEdges = 0;
+
+    row.pathSourceIds.forEach((sid, i) => {
       if (typeof sid !== "string" || sid.length === 0) {
-        missingEvidence = true;
-        continue;
+        // The edge cites nothing at all.
+        unresolved.push(`${row.pathRelIds[i] ?? `edge_${i}`}:no-source-cited`);
+        return;
       }
       const ev = evidenceById.get(sid);
       if (ev) {
         pathEvidence.push(ev);
+        resolvedEdges += 1;
       } else {
         // The edge names a source that does not exist as a node. Report the
         // gap; never invent the missing record.
-        missingEvidence = true;
+        unresolved.push(sid);
       }
-    }
-    if (missingEvidence) unevidenced.add(row.entityId);
+    });
+
+    const totalEdges = row.edgeHops;
+    const evidenceStatus: EvidenceStatus =
+      resolvedEdges === totalEdges ? "COMPLETE" : resolvedEdges === 0 ? "MISSING" : "PARTIAL";
+
+    if (evidenceStatus !== "COMPLETE") unevidenced.add(row.entityId);
 
     const path: DependencyPath = {
       nodes,
@@ -168,6 +262,8 @@ export async function analyseImpact(
       edgeHops: row.edgeHops,
       entityHops: countEntityHops(row.pathIntermediary, row.edgeHops),
       evidence: pathEvidence,
+      evidenceStatus,
+      unresolvedSourceIds: unresolved,
     };
 
     const bucket: EntityBucket = byEntity.get(row.entityId) ?? {
@@ -213,13 +309,10 @@ export async function analyseImpact(
       name: firstRow.entityName,
       shortestPath,
       allPaths,
+      ...classifyExposure(allPaths),
       evidence: [...distinctEvidence.values()].sort((a, b) =>
         a.sourceId.localeCompare(b.sourceId),
       ),
-      // The dependency chain and its evidence are present in the graph, so the
-      // exposure is an observation. Any judgment about consequences would be
-      // ASSESSED and is not produced at this stage.
-      claim: "OBSERVED",
       ruleId: IMPACT_RULE_ID,
     });
   }

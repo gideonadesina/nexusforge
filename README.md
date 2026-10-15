@@ -89,15 +89,35 @@ suite.
 - **Strict depth validation** — fractions, negatives, zero, out-of-range, NaN,
   Infinity, and all string input rejected before any Cypher is constructed
 
-### NOT IMPLEMENTED (deliberately — Stage 2B and later)
+**Action workflow (Stage 2B)**
+- **Correct claim classification** — `OBSERVED` only for a single relationship
+  backed by resolving evidence; transitive conclusions are `DERIVED`
+- **Explicit evidence gaps** — `COMPLETE` / `PARTIAL` / `MISSING`, with
+  dangling references listed, and an enforced invariant that an unsupported
+  conclusion can never be marked verified
+- `:ActionProposal` nodes from deterministic versioned rules, linked to the
+  run, the justifying finding, and the target entity
+- `PROPOSED → APPROVED | REJECTED` only, with run-scoped authorization and the
+  expected prior state enforced inside one statement
+- Append-only `:AuditEvent` per successful transition, consistent with state
+  and never duplicated on retry
+
+### NOT IMPLEMENTED (deliberately — later stages)
 
 Qualification and availability rules · replacement-candidate ranking ·
-missing-data and contradiction detection · action proposals and approval
-workflow · audit records · LLM integration · any user interface · a second
+contradiction detection · LLM integration · any user interface · a second
 domain pack · any HTTP surface (the cookie transport is designed and unit
 tested but **not wired to a route**).
 
-**There is no UI.** The page at `/` is a static placeholder. Stage 1 is
+**Explicitly NOT modelled:** `REVIEWED`, `EXECUTED`, and `VERIFIED` proposal
+states. NexusForge performs no external action and cannot confirm one, so
+those states would be a lie encoded in the schema.
+
+> **Approval is not execution.** An approved proposal records that a demo run
+> owner decided to proceed. Nothing has been executed, scheduled,
+> communicated, or verified. Every transition returns `executed: false`.
+
+**There is no UI.** The page at `/` is a static placeholder. The system is
 exercised from the CLI and the test suite.
 
 ---
@@ -224,14 +244,26 @@ check-then-write step and therefore no race. Every run mutation funnels through
 
 ## Claim classification
 
-| Label | Meaning |
-|---|---|
-| `OBSERVED` | Directly in the graph, with source evidence |
-| `DERIVED` | Computed by a named, versioned rule |
-| `ASSESSED` | Judgment or interpretation — any AI-written assessment |
+| Label | Meaning | Used for |
+|---|---|---|
+| `OBSERVED` | A **single** relationship, backed by evidence that resolves | direct dependencies |
+| `DERIVED` | Computed by chaining relationships under a versioned rule | transitive exposure |
+| `ASSESSED` | Judgment or interpretation | action proposals |
 
-Stage 1 emits only `OBSERVED`, tagged with the rule id
-`rule.impact.dependency-reachability@1`.
+Evidence support is tracked **separately** from claim class, because they
+answer different questions — *how* a statement was reached versus *whether it
+is supported*:
+
+| `evidenceStatus` | Meaning |
+|---|---|
+| `COMPLETE` | every traversed edge cites a source that exists |
+| `PARTIAL` | some edges resolve, some do not |
+| `MISSING` | no edge on the route resolves |
+
+A one-hop dependency whose evidence does **not** resolve is not an observed
+fact: it degrades to `DERIVED` with `supported: false`. An unsupported
+conclusion can never be marked verified — that invariant is enforced in code,
+not just documented.
 
 > **A dependency path proves exposure to a change, not operational failure.**
 > The engine does not assign severity, declare anything "at risk", or infer
@@ -279,6 +311,18 @@ names, registers, rosters, and minutes are invented for this demonstration.
    dependency must be inverted when a second pack lands.
 10. **No HTTP surface.** The owner-token cookie transport is designed and unit
     tested but deliberately not wired to any route.
+11. **Single synthetic organization.** There is no tenant boundary. Run-scoped
+    authorization protects *runs*, not organizational data; multi-organization
+    support would need a tenant key on every node and tenant-scoped traversal.
+12. **Parallel edges under-report routes.** Two `DEPENDS_ON` edges between the
+    same pair collapse to one stored path, because signatures key on node ids.
+    Entity counts, claims, and evidence stay correct. Tested and documented;
+    not repaired, because the education seed provably contains none.
+13. **The 31 s retry budget is unproven in deployment.** Worst case is ~19 s
+    cold connect plus 31 s backoff. It fits Hobby's 300 s limit on paper, but
+    has not been tested from a real Vercel request, and a 31 s in-request
+    stall is poor UX. A short per-request budget is recommended for the HTTP
+    layer.
 
 ---
 

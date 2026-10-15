@@ -19,6 +19,19 @@ export type ClaimClass = "OBSERVED" | "DERIVED" | "ASSESSED";
 /** Identifier of the deterministic rule that produced a DERIVED claim. */
 export type RuleId = string;
 
+/**
+ * Whether the evidence backing a statement actually resolves.
+ *
+ * COMPLETE - every traversed edge names a source, and every source exists.
+ * PARTIAL  - at least one edge resolved, at least one did not.
+ * MISSING  - no edge on this route resolved to a real source record.
+ *
+ * This is reported separately from the claim class because the two answer
+ * different questions: the claim says *how* a statement was reached, the
+ * evidence status says *whether it is supported*.
+ */
+export type EvidenceStatus = "COMPLETE" | "PARTIAL" | "MISSING";
+
 export interface EvidenceRef {
   /** Stable id of the Source node in FalkorDB. */
   sourceId: string;
@@ -63,6 +76,14 @@ export interface DependencyPath {
   entityHops: number;
   /** Evidence attached to each relationship along this route. */
   evidence: EvidenceRef[];
+  /** Whether every edge on this route is backed by a resolvable source. */
+  evidenceStatus: EvidenceStatus;
+  /**
+   * Source ids named by an edge on this route that do NOT exist as Source
+   * nodes, plus a marker for edges naming no source at all. Reported so the
+   * gap is explicit; never silently filled in.
+   */
+  unresolvedSourceIds: string[];
 }
 
 /**
@@ -84,10 +105,28 @@ export interface ImpactedEntity {
   /** Distinct evidence across all routes, deduplicated by sourceId. */
   evidence: EvidenceRef[];
   /**
-   * OBSERVED: the dependency chain and its evidence are present in the graph.
-   * The exposure itself is a graph fact, not an interpretation.
+   * How this exposure was established.
+   *
+   * OBSERVED - the entity depends on the changed entity through a SINGLE
+   *            relationship that is directly backed by a resolvable source.
+   *            This is a fact read straight out of the graph.
+   * DERIVED  - the exposure was computed by following a chain of two or more
+   *            relationships. Transitive reachability is a rule-based
+   *            conclusion, not something any single record states.
+   *
+   * Stage 2A incorrectly labelled every impacted entity OBSERVED, including
+   * three-hop conclusions and entities with unresolved evidence.
    */
   claim: ClaimClass;
+  /** Best evidence status across all routes to this entity. */
+  evidenceStatus: EvidenceStatus;
+  /**
+   * False when the best available route has unresolved evidence. An
+   * unsupported conclusion must never be presented as verified.
+   */
+  supported: boolean;
+  /** Distinct unresolved source references across all routes. */
+  unresolvedSourceIds: string[];
   /** Rule that produced this record. */
   ruleId: RuleId;
 }
