@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { ping } from "@/lib/falkor/client";
-import { getEnv } from "@/lib/env";
 import { isSeeded } from "@/lib/graph/seed";
+import { orgContext } from "@/lib/org/packs";
 import { errorResponse } from "../_lib/http";
 
 export const runtime = "nodejs";
@@ -19,13 +19,16 @@ export async function GET() {
   const started = Date.now();
   try {
     const result = await ping();
-    const graphName = getEnv().FALKORDB_GRAPH;
-    const seeded = await isSeeded(graphName);
+    // Report the DEFAULT organization's graph, not a bare env fallback, so
+    // health reflects what a visitor actually loads.
+    const { org, pack, graphName } = orgContext(undefined);
+    const seeded = await isSeeded(graphName, pack);
 
     return NextResponse.json({
       ok: true,
       target: result.target, // host is masked
       graphsOnInstance: result.graphs,
+      organization: org.label,
       graphName,
       seeded,
       latencyMs: Date.now() - started,

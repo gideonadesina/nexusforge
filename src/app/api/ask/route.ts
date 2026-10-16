@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { z } from "zod";
 import { orgContext } from "@/lib/org/packs";
 import { publicView, listPublicOrganizations } from "@/lib/org/registry";
-import { readGraphFacts, suggestQuestions, resolveQuestion } from "@/lib/agent/questions";
+import { readGraphFacts, verifiedSuggestions, resolveQuestion } from "@/lib/agent/questions";
 import { composeAnswer } from "@/lib/agent/answer";
 import { runAgent, agentEnabled, AgentDisabledError } from "@/lib/agent/loop";
 import { openAiPlanner, openAiConfigured, type UsageTally } from "@/lib/agent/openai-planner";
@@ -46,7 +46,7 @@ export async function GET(req: Request) {
     return NextResponse.json({
       organization: publicView(org),
       organizations: listPublicOrganizations(),
-      suggestions: suggestQuestions(facts),
+      suggestions: verifiedSuggestions(facts, pack.scenarioRootId ?? facts.topRoot?.id ?? null),
       entityCount: facts.entities.length,
       modelAvailable: llmEnabled(),
       budget: llmEnabled() ? await budgetSnapshot() : null,
@@ -77,7 +77,12 @@ export async function POST(req: Request) {
     const resolved = resolveQuestion(parsed.data.question, facts, defaultRoot);
 
     // Grounded answer FIRST. This is the authoritative content.
-    const grounded = await composeAnswer(graphName, resolved, parsed.data.analysisRunId);
+    const grounded = await composeAnswer(
+      graphName,
+      resolved,
+      publicView(org),
+      parsed.data.analysisRunId,
+    );
 
     const wantsModel = parsed.data.useModel === true && llmEnabled() && agentEnabled();
 

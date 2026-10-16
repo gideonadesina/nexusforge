@@ -1,6 +1,6 @@
 import { analyseImpact } from "../engine/impact";
 import { listProposals } from "../actions/actions";
-import { ORGANIZATION } from "../../domain/education/seed-data";
+import type { PublicOrganization } from "../org/registry";
 import type { Intent, ResolvedQuestion } from "./questions";
 import type { ImpactAnalysis } from "../engine/types";
 
@@ -31,10 +31,16 @@ export interface GroundedAnswer {
 export async function composeAnswer(
   graphName: string,
   resolved: ResolvedQuestion,
+  /**
+   * The organization actually loaded. REQUIRED: the scope answer previously
+   * hardcoded the education organization and so told Northstar users they
+   * were looking at a school.
+   */
+  org: PublicOrganization,
   analysisRunId?: string,
 ): Promise<GroundedAnswer> {
   if (resolved.intent === "SCOPE") {
-    return scopeAnswer();
+    return scopeAnswer(org);
   }
 
   if (resolved.intent === "UNSUPPORTED" || !resolved.rootEntityId) {
@@ -76,12 +82,12 @@ export async function composeAnswer(
   }
 }
 
-function scopeAnswer(): GroundedAnswer {
+function scopeAnswer(org: PublicOrganization): GroundedAnswer {
   return {
     intent: "SCOPE",
     text:
-      `The loaded organization is ${ORGANIZATION.label} (${ORGANIZATION.sector}). ` +
-      `${ORGANIZATION.notice} ` +
+      `The loaded organization is ${org.label} (${org.sector}). ` +
+      `${org.notice} ` +
       `I can answer questions about this graph only: what a change exposes, why a specific ` +
       `entity is affected and by which routes, what evidence supports a finding, which findings ` +
       `have unresolved evidence, and what actions are proposed. ` +
@@ -146,7 +152,8 @@ function whyAnswer(a: ImpactAnalysis, targetId: string | undefined): GroundedAns
     `and ${hit.shortestPath.entityHops} organizational ` +
     `${hit.shortestPath.entityHops === 1 ? "transition" : "transitions"}. ` +
     (hit.allPaths.length > 1
-      ? `${hit.allPaths.length} independent routes reach it, so a single substitution will not resolve it. `
+      ? `${hit.allPaths.length} distinct routes reach it. Note that distinct routes are not ` +
+        `necessarily independent -- they may share intermediate entities. `
       : `Exactly one route reaches it. `) +
     `This conclusion is ${hit.claim}` +
     (hit.claim === "DERIVED"

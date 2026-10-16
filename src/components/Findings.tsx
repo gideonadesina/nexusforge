@@ -64,8 +64,8 @@ export function buildSections(impacted: ImpactedEntity[]): Section[] {
     },
     {
       key: "constrained",
-      title: "Structurally constrained",
-      rule: "several independent routes converge, so one substitution will not resolve it",
+      title: "Multiple dependency routes",
+      rule: "reached by more than one distinct dependency route",
       entities: impacted.filter((e) => e.allPaths.length > 1),
     },
     {

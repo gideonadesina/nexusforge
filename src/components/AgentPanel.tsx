@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 /**
  * Agent investigation transcript.
@@ -30,11 +30,26 @@ interface AgentResult {
   canApprove: false;
 }
 
-export function AgentPanel({ rootEntityId }: { rootEntityId: string }) {
+export function AgentPanel({
+  orgId,
+  rootEntityId,
+}: {
+  /** Required: an agent request without it could target the wrong graph. */
+  orgId: string;
+  rootEntityId: string;
+}) {
   const [result, setResult] = useState<AgentResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [open, setOpen] = useState<number | null>(null);
+
+  // Clear any previous transcript when the organization changes, so a
+  // Northstar investigation can never sit under an Education header.
+  useEffect(() => {
+    setResult(null);
+    setError(null);
+    setOpen(null);
+  }, [orgId]);
 
   const run = async () => {
     setBusy(true);
@@ -43,7 +58,7 @@ export function AgentPanel({ rootEntityId }: { rootEntityId: string }) {
       const res = await fetch("/api/agent", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rootEntityId }),
+        body: JSON.stringify({ org: orgId, rootEntityId }),
       });
       const body = await res.json();
       if (!res.ok) {

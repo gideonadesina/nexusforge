@@ -157,10 +157,7 @@ async function ensureIndexes(graphName: string): Promise<void> {
  * Returns the real post-seed census read back from the database, not the
  * values we intended to write.
  */
-export async function seedGraph(
-  graphName: string,
-  pack: DomainPack = EDUCATION_PACK,
-): Promise<SeedReport> {
+export async function seedGraph(graphName: string, pack: DomainPack): Promise<SeedReport> {
   validateSeedData(pack.sources, pack.entities, pack.dependencies, pack.danglingSourceIds ?? []);
 
   let nodesCreated = 0;
@@ -266,10 +263,7 @@ export function seedEducationGraph(graphName: string): Promise<SeedReport> {
 }
 
 /** True when a complete seed of the current version is present. */
-export async function isSeeded(
-  graphName: string,
-  pack: DomainPack = EDUCATION_PACK,
-): Promise<boolean> {
+export async function isSeeded(graphName: string, pack: DomainPack): Promise<boolean> {
   try {
     const r = await roQuery<{ seedVersion: string; complete: boolean }>(
       graphName,
@@ -286,10 +280,15 @@ export async function isSeeded(
 /**
  * Re-seed path for a missing graph: the free tier reclaims idle instances, so
  * the demonstration must be able to rebuild itself from the domain pack.
+ *
+ * `pack` is REQUIRED and no longer defaults to education. A default meant a
+ * caller that forgot to pass one would silently seed education data into
+ * whichever graph it was given -- which is exactly how the agent's read tools
+ * could have contaminated Northstar. Forgetting is now a type error.
  */
 export async function ensureSeeded(
   graphName: string,
-  pack: DomainPack = EDUCATION_PACK,
+  pack: DomainPack,
 ): Promise<{
   alreadySeeded: boolean;
   report: SeedReport | null;

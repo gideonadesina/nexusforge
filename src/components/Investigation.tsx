@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   AnalysisResponse,
   AuditEvent,
@@ -69,6 +69,22 @@ export function Investigation() {
    * both are visible side by side exactly as before.
    */
   const [mobileView, setMobileView] = useState<"narrative" | "graph">("narrative");
+  /**
+   * Inspector visibility, SEPARATE from the traced selection.
+   *
+   * Closing the Inspector used to clear `selectedId`, which also cleared the
+   * highlighted path. On mobile the Inspector covers the canvas, so the only
+   * way to see your trace was to close the sheet -- which destroyed it.
+   */
+  const [inspectorOpen, setInspectorOpen] = useState(false);
+  /**
+   * Generation counter for in-flight requests.
+   *
+   * Switching organization bumps it. Any response that comes back carrying an
+   * older generation is discarded, so a slow Northstar analysis can never
+   * render under the Education header.
+   */
+  const requestGen = useRef(0);
   const [busy, setBusy] = useState(false);
   const [busyProposal, setBusyProposal] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -113,10 +129,13 @@ export function Investigation() {
    */
   useEffect(() => {
     let cancelled = false;
+    // Invalidate every in-flight request belonging to the previous org.
+    const gen = ++requestGen.current;
     setAnalysis(null);
     setProposals([]);
     setAuditEvents([]);
     setSelectedId(null);
+    setInspectorOpen(false);
     setActivePathIndex(0);
     setCanDecide(false);
     setEntities([]);
@@ -128,7 +147,7 @@ export function Investigation() {
       try {
         const res = await fetch(`/api/entities?org=${encodeURIComponent(orgId)}`);
         const body = await res.json();
-        if (cancelled) return;
+        if (cancelled || gen !== requestGen.current) return;
         if (!res.ok) {
           setError(body.error ?? "Could not load entities.");
           return;
@@ -153,9 +172,12 @@ export function Investigation() {
 
   const runAnalysis = useCallback(async () => {
     if (!rootId) return;
+    const gen = requestGen.current;
+    const orgAtRequest = orgId;
     setBusy(true);
     setError(null);
     setSelectedId(null);
+    setInspectorOpen(false);
     const started = Date.now();
     try {
       const res = await fetch("/api/analysis", {
@@ -164,6 +186,9 @@ export function Investigation() {
         body: JSON.stringify({ org: orgId, rootEntityId: rootId, maxDepth: depth }),
       });
       const body = await res.json();
+      // Discard a response whose organization is no longer selected, so a
+      // slow analysis can never render under a different organization.
+      if (gen !== requestGen.current || orgAtRequest !== orgId) return;
       if (!res.ok) {
         setError(`${body.code}: ${body.error}`);
         addLog("analysis failed", body.error, `HTTP ${res.status}\n${body.code}`);
@@ -225,14 +250,17 @@ export function Investigation() {
         );
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (gen === requestGen.current) {
+        setError(err instanceof Error ? err.message : String(err));
+      }
     } finally {
-      setBusy(false);
+      if (gen === requestGen.current) setBusy(false);
     }
   }, [rootId, depth, addLog, orgId]);
 
   const decide = useCallback(
     async (proposalId: string, decision: "APPROVED" | "REJECTED") => {
+      const gen = requestGen.current;
       setBusyProposal(proposalId);
       setError(null);
       try {
@@ -285,6 +313,7 @@ export function Investigation() {
       if (prev !== id) setActivePathIndex(0);
       return id;
     });
+    setInspectorOpen(true);
   }, []);
 
   const skipReveal = useCallback(() => {
@@ -295,7 +324,7 @@ export function Investigation() {
   const rootOption = entities.find((e) => e.id === rootId);
 
   return (
-    <div className="flex h-dvh flex-col bg-[var(--color-surface-0)]">
+    <div className="flex h-dvh w-full max-w-full flex-col overflow-x-hidden bg-[var(--color-surface-0)]">
       <TopBar
         orgId={orgId}
         orgs={orgs}
@@ -346,7 +375,7 @@ export function Investigation() {
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
         {/* LEFT — narrative */}
         <div
-          className={`nf-scroll w-full shrink-0 overflow-y-auto border-[var(--color-line)] p-5 lg:block lg:w-[23rem] lg:border-r ${
+          className={`nf-scroll w-full min-w-0 max-w-full shrink-0 overflow-x-hidden overflow-y-auto border-[var(--color-line)] p-4 sm:p-5 lg:block lg:w-[23rem] lg:border-r ${
             mobileView === "graph" ? "hidden" : "block"
           }`}
         >
@@ -405,7 +434,7 @@ export function Investigation() {
             <h2 className="mb-2 text-xs uppercase tracking-wide text-[var(--color-ink-muted)]">
               Agent
             </h2>
-            <AgentPanel rootEntityId={rootId} />
+            <AgentPanel orgId={orgId} rootEntityId={rootId} />
           </section>
 
           {analysis && (
@@ -489,7 +518,12 @@ export function Investigation() {
                     label={selected?.name ?? selectedId}
                     routeCount={selected?.allPaths.length ?? 1}
                     activeIndex={activePathIndex}
-                    onClear={() => setSelectedId(null)}
+                    inspectorOpen={inspectorOpen}
+                    onShowEvidence={() => setInspectorOpen(true)}
+                    onClear={() => {
+                      setSelectedId(null);
+                      setInspectorOpen(false);
+                    }}
                   />
                 )}
                 <div className="min-h-0 flex-1">
@@ -507,12 +541,12 @@ export function Investigation() {
               </div>
 
               <Inspector
-                entity={selected}
+                entity={inspectorOpen ? selected : null}
                 rootEntityId={analysis.root.entityId}
                 maxDepth={analysis.maxDepth}
                 activePathIndex={activePathIndex}
                 onSelectPath={setActivePathIndex}
-                onClose={() => setSelectedId(null)}
+                onClose={() => setInspectorOpen(false)}
               />
             </>
           ) : (
@@ -552,7 +586,7 @@ function TopBar({
   analysis: AnalysisResponse | null;
 }) {
   return (
-    <header className="flex flex-wrap items-center gap-3 border-b border-[var(--color-line)] bg-[var(--color-surface-1)] px-5 py-3">
+    <header className="flex w-full max-w-full flex-wrap items-center gap-x-3 gap-y-2 border-b border-[var(--color-line)] bg-[var(--color-surface-1)] px-4 py-3 sm:px-5">
       <div className="mr-2">
         <div className="text-sm font-medium tracking-tight">NexusForge</div>
         <div className="text-[0.6875rem] text-[var(--color-ink-faint)]">
@@ -565,7 +599,7 @@ function TopBar({
         <select
           value={orgId}
           onChange={(e) => onOrgChange(e.target.value)}
-          className="border border-[var(--color-line-strong)] bg-[var(--color-surface-2)] px-2 py-1 text-[var(--color-ink)]"
+          className="min-h-9 min-w-0 max-w-[14rem] border border-[var(--color-line-strong)] bg-[var(--color-surface-2)] px-2 py-1 text-[var(--color-ink)]"
         >
           {orgs.length === 0 && <option value={orgId}>loading…</option>}
           {orgs.map((o) => (
@@ -581,7 +615,7 @@ function TopBar({
         <select
           value={rootId}
           onChange={(e) => onRootChange(e.target.value)}
-          className="nf-graph-value max-w-xs border border-[var(--color-line-strong)] bg-[var(--color-surface-2)] px-2 py-1 text-[var(--color-ink)]"
+          className="nf-graph-value min-h-9 w-full min-w-0 max-w-[16rem] border border-[var(--color-line-strong)] bg-[var(--color-surface-2)] px-2 py-1 text-[var(--color-ink)]"
         >
           {entities.length === 0 && <option value="">loading…</option>}
           {entities.map((e) => (
@@ -608,13 +642,13 @@ function TopBar({
         type="button"
         onClick={onRun}
         disabled={busy || !rootId}
-        className="border border-[var(--color-accent-dim)] bg-[var(--color-surface-2)] px-3 py-1.5 text-xs text-[var(--color-accent)] hover:bg-[var(--color-surface-3)] disabled:cursor-not-allowed disabled:opacity-40"
+        className="min-h-10 shrink-0 border border-[var(--color-accent-dim)] bg-[var(--color-surface-2)] px-4 py-2 text-xs font-medium text-[var(--color-accent)] hover:bg-[var(--color-surface-3)] disabled:cursor-not-allowed disabled:opacity-40"
       >
         {busy ? "Querying graph…" : "Run analysis"}
       </button>
 
       {analysis && (
-        <div className="ml-auto flex items-center gap-4 text-xs text-[var(--color-ink-faint)]">
+        <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-1 text-xs text-[var(--color-ink-faint)] sm:ml-auto sm:w-auto">
           <span className="nf-graph-value nf-num">
             {analysis.distinctImpactedCount} entities
           </span>
@@ -677,11 +711,15 @@ function TraceBar({
   label,
   routeCount,
   activeIndex,
+  inspectorOpen,
+  onShowEvidence,
   onClear,
 }: {
   label: string;
   routeCount: number;
   activeIndex: number;
+  inspectorOpen: boolean;
+  onShowEvidence: () => void;
   onClear: () => void;
 }) {
   return (
@@ -694,13 +732,28 @@ function TraceBar({
           </span>
         )}
       </p>
-      <button
-        type="button"
-        onClick={onClear}
-        className="shrink-0 border border-[var(--color-line-strong)] px-2 py-0.5 text-xs text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
-      >
-        Clear trace
-      </button>
+      <div className="flex shrink-0 items-center gap-2">
+        {/*
+          Closing the Inspector keeps the trace, so there has to be a way back
+          into the evidence without re-selecting the node.
+        */}
+        {!inspectorOpen && (
+          <button
+            type="button"
+            onClick={onShowEvidence}
+            className="min-h-8 border border-[var(--color-accent-dim)] px-2 py-1 text-xs text-[var(--color-accent)] hover:bg-[var(--color-surface-3)]"
+          >
+            Evidence
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onClear}
+          className="min-h-8 border border-[var(--color-line-strong)] px-2 py-1 text-xs text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
+        >
+          Clear trace
+        </button>
+      </div>
     </div>
   );
 }

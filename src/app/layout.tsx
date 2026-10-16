@@ -4,7 +4,9 @@ import "./globals.css";
 export const metadata: Metadata = {
   title: "NexusForge",
   description:
-    "Graph-backed organizational intelligence engine. Stage 1 walking skeleton.",
+    "Evidence-backed organizational intelligence. Trace how a change propagates " +
+    "through connected systems, inspect the source records behind every finding, " +
+    "and review controlled actions. Powered by FalkorDB.",
 };
 
 export default function RootLayout({

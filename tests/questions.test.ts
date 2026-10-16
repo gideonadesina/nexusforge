@@ -9,7 +9,11 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { seedEducationGraph } from "../src/lib/graph/seed";
 import { readGraphFacts, suggestQuestions, resolveQuestion } from "../src/lib/agent/questions";
+import { EDUCATION_PACK } from "../src/lib/graph/seed";
 import { composeAnswer } from "../src/lib/agent/answer";
+import { publicView, resolveOrg } from "../src/lib/org/registry";
+
+const EDU_ORG = publicView(resolveOrg("education"));
 import { closeDb } from "../src/lib/falkor/client";
 import { uniqueTestGraph, cleanupGraph } from "./helpers";
 import type { GraphFacts } from "../src/lib/agent/questions";
@@ -20,7 +24,7 @@ let defaultRoot: string;
 
 beforeAll(async () => {
   await seedEducationGraph(graphName);
-  facts = await readGraphFacts(graphName);
+  facts = await readGraphFacts(graphName, EDUCATION_PACK);
   defaultRoot = facts.topRoot!.id;
 }, 180_000);
 
@@ -64,7 +68,7 @@ describe("case 1 — a supported suggested question", () => {
     const resolved = resolveQuestion(q.text, facts, defaultRoot);
     expect(resolved.intent).toBe("IMPACT");
 
-    const answer = await composeAnswer(graphName, resolved);
+    const answer = await composeAnswer(graphName, resolved, EDU_ORG);
     expect(answer.supported).toBe(true);
     expect(answer.analysis).not.toBeNull();
     // The stated count must equal the computed count.
@@ -100,7 +104,7 @@ describe("case 2 — paraphrases resolve to the same intent", () => {
       facts,
       defaultRoot,
     );
-    const answer = await composeAnswer(graphName, r);
+    const answer = await composeAnswer(graphName, r, EDU_ORG);
     const hit = answer.analysis!.impacted.find(
       (e) => e.entityId === "ent_exam_waec_mock_physics",
     )!;
@@ -118,7 +122,7 @@ describe("case 3 — evidence questions cite real sources", () => {
     );
     expect(r.intent).toBe("EVIDENCE");
 
-    const answer = await composeAnswer(graphName, r);
+    const answer = await composeAnswer(graphName, r, EDU_ORG);
     expect(answer.citedSourceIds.length).toBeGreaterThan(0);
 
     const hit = answer.analysis!.impacted.find(
@@ -132,7 +136,7 @@ describe("case 3 — evidence questions cite real sources", () => {
   it("reports evidence gaps honestly when asked about unknowns", async () => {
     const r = resolveQuestion("which findings have incomplete evidence?", facts, defaultRoot);
     expect(r.intent).toBe("UNKNOWNS");
-    const answer = await composeAnswer(graphName, r);
+    const answer = await composeAnswer(graphName, r, EDU_ORG);
     // The clean seed has none, and the answer must say so rather than invent.
     expect(answer.text).toMatch(/no finding has unresolved evidence/i);
     expect(answer.supported).toBe(true);
@@ -147,7 +151,7 @@ describe("case 4 — unsupported and ambiguous questions", () => {
   ])("refuses %s and explains what it can do", async (text) => {
     const r = resolveQuestion(text, facts, defaultRoot);
     expect(r.intent).toBe("UNSUPPORTED");
-    const answer = await composeAnswer(graphName, r);
+    const answer = await composeAnswer(graphName, r, EDU_ORG);
     expect(answer.supported).toBe(false);
     expect(answer.text.length).toBeGreaterThan(0);
     expect(answer.analysis).toBeNull();
@@ -174,7 +178,7 @@ describe("case 4 — unsupported and ambiguous questions", () => {
   it("answers a scope question without claiming outside knowledge", async () => {
     const r = resolveQuestion("what can you actually answer?", facts, defaultRoot);
     expect(r.intent).toBe("SCOPE");
-    const answer = await composeAnswer(graphName, r);
+    const answer = await composeAnswer(graphName, r, EDU_ORG);
     expect(answer.text).toMatch(/synthetic/i);
     expect(answer.text).toMatch(/no knowledge of any real organization/i);
   });

@@ -122,7 +122,7 @@ function rankTargets(analysis: MinimalAnalysis): RankedTarget[] {
     if (e.supported && e.allPaths.length > 1) {
       out.push({
         entityId: e.entityId,
-        reason: `${e.entityId} is reached by ${e.allPaths.length} independent routes, so a single substitution will not resolve it.`,
+        reason: `${e.entityId} is reached by ${e.allPaths.length} distinct routes; confirm what they share.`,
       });
     }
   }

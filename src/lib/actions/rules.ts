@@ -36,6 +36,13 @@ export const RULE_EVIDENCE_GAP = "rule.action.resolve-evidence-gap@1";
  */
 function coverDirectDependency(e: ImpactedEntity): ProposalDraft | null {
   if (e.shortestPath.edgeHops !== 1) return null;
+
+  // Do NOT propose an operational change on a finding whose evidence does not
+  // resolve. Telling someone to decide a replacement for a dependency we
+  // cannot actually evidence is advice built on nothing. The evidence-gap
+  // rule still fires for these, so they are surfaced -- just not actioned.
+  if (!e.supported || e.evidenceStatus !== "COMPLETE") return null;
+
   return {
     ruleId: RULE_COVER_DIRECT,
     actionType: "REASSIGN_DEPENDENCY",

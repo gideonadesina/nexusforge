@@ -72,12 +72,20 @@ export class AgentDisabledError extends Error {
 }
 
 /**
- * Kill switch. Defaults to ENABLED because the only planner that ships today
- * is deterministic and performs no external calls; set NF_AGENT_ENABLED=false
- * to stop all agent activity without a redeploy.
+ * Kill switch, now DEFAULT-OFF.
+ *
+ * It previously defaulted to on, on the reasoning that the scripted planner
+ * makes no external calls. That reasoning was incomplete: the agent's read
+ * tools called `ensureSeeded` with no domain pack, so merely *reading*
+ * through the agent could have seeded the education pack into another
+ * organization's graph. Being free of API cost is not the same as being safe.
+ *
+ * Default-off means the agent cannot run anywhere -- production, preview or a
+ * developer's laptop -- unless someone explicitly sets NF_AGENT_ENABLED=true.
+ * This is independent of NF_AGENT_LLM, which only governs paid inference.
  */
 export function agentEnabled(): boolean {
-  return (process.env.NF_AGENT_ENABLED ?? "true").toLowerCase() !== "false";
+  return (process.env.NF_AGENT_ENABLED ?? "false").toLowerCase() === "true";
 }
 
 /** Process-wide counter, so a runaway client cannot exhaust the instance. */

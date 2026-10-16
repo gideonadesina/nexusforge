@@ -23,7 +23,7 @@ const { openAiPlanner, openAiConfigured, DEFAULT_MODEL, OPENAI_RESPONSES_URL } =
 );
 const { resetBudget, budgetSnapshot } = await import("../src/lib/agent/budget");
 const { analyseImpact } = await import("../src/lib/engine/impact");
-const { ensureSeeded } = await import("../src/lib/graph/seed");
+const { ensureSeeded, EDUCATION_PACK } = await import("../src/lib/graph/seed");
 const { closeDb } = await import("../src/lib/falkor/client");
 const { SCENARIO_ROOT_ENTITY_ID } = await import("../src/domain/education/seed-data");
 
@@ -46,7 +46,7 @@ console.log(`budget   : 5 steps max, 40s wall clock, 20s per request`);
 console.log("");
 
 try {
-  await ensureSeeded(graphName);
+  await ensureSeeded(graphName, EDUCATION_PACK);
   await resetBudget();
 
   // Ground truth straight from FalkorDB, for the grounding check.

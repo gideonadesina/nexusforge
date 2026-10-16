@@ -90,6 +90,9 @@ export function AskPanel({
         return;
       }
       setResult(body as AskResponse);
+      // Focus the first entity the answer is actually about. The old
+      // "Show N entities on the canvas" button did not load an
+      // investigation, so it has been removed rather than left misleading.
       if (body.answer?.focusEntityIds?.length) {
         onFocusEntities(body.answer.focusEntityIds);
       }
@@ -113,7 +116,7 @@ export function AskPanel({
               disabled={busy}
               onClick={() => ask(s.text)}
               title={s.basis}
-              className="nf-anim w-full border border-[var(--color-line)] bg-[var(--color-surface-2)] px-2.5 py-2 text-left text-xs leading-snug hover:border-[var(--color-accent-dim)] disabled:opacity-50"
+              className="nf-anim min-h-11 w-full border border-[var(--color-line)] bg-[var(--color-surface-2)] px-2.5 py-2 text-left text-xs leading-snug hover:border-[var(--color-accent-dim)] disabled:opacity-50"
             >
               {s.text}
               <span className="mt-1 block text-[0.625rem] text-[var(--color-ink-faint)]">
@@ -139,12 +142,12 @@ export function AskPanel({
           value={text}
           onChange={(e) => setText(e.target.value)}
           placeholder="Or ask about this graph…"
-          className="min-w-0 flex-1 border border-[var(--color-line)] bg-[var(--color-surface-1)] px-2 py-1 text-xs text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)]"
+          className="min-h-10 min-w-0 flex-1 border border-[var(--color-line)] bg-[var(--color-surface-1)] px-2 py-1 text-xs text-[var(--color-ink)] placeholder:text-[var(--color-ink-faint)]"
         />
         <button
           type="submit"
           disabled={busy || !text.trim()}
-          className="shrink-0 border border-[var(--color-line-strong)] px-2 py-1 text-xs text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] disabled:opacity-40"
+          className="min-h-10 shrink-0 border border-[var(--color-line-strong)] px-3 py-1 text-xs text-[var(--color-ink-muted)] hover:text-[var(--color-ink)] disabled:opacity-40"
         >
           {busy ? "…" : "Ask"}
         </button>
@@ -185,15 +188,6 @@ export function AskPanel({
             )}
           </p>
 
-          {result.answer.focusEntityIds.length > 0 && (
-            <button
-              type="button"
-              onClick={() => onFocusEntities(result.answer.focusEntityIds)}
-              className="mt-1.5 text-[0.625rem] text-[var(--color-accent)] hover:underline"
-            >
-              Show {result.answer.focusEntityIds.length} entities on the canvas →
-            </button>
-          )}
         </div>
       )}
 

@@ -5,7 +5,14 @@
  * run creates no duplicate logical records.
  */
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
-import { seedEducationGraph, census, expectedCensus, isSeeded, ensureSeeded } from "../src/lib/graph/seed";
+import {
+  seedEducationGraph,
+  census,
+  expectedCensus,
+  isSeeded,
+  ensureSeeded,
+  EDUCATION_PACK,
+} from "../src/lib/graph/seed";
 import { roQuery, closeDb } from "../src/lib/falkor/client";
 import { ENTITY_ID_CENSUS, DEPENDENCY_ID_CENSUS } from "../src/lib/graph/queries";
 import { uniqueTestGraph, cleanupGraph } from "./helpers";
@@ -71,8 +78,8 @@ describe("Test 5 — seed idempotency", () => {
   }, 60_000);
 
   it("reports the graph as seeded, and ensureSeeded becomes a no-op", async () => {
-    expect(await isSeeded(graphName)).toBe(true);
-    const r = await ensureSeeded(graphName);
+    expect(await isSeeded(graphName, EDUCATION_PACK)).toBe(true);
+    const r = await ensureSeeded(graphName, EDUCATION_PACK);
     expect(r.alreadySeeded).toBe(true);
     expect(r.report).toBeNull();
   });
@@ -87,12 +94,12 @@ describe("re-seed pathway for a missing graph", () => {
 
   it("reports an absent graph as not seeded, then rebuilds it", async () => {
     // A graph that has never been written does not exist on the server.
-    expect(await isSeeded(missing)).toBe(false);
+    expect(await isSeeded(missing, EDUCATION_PACK)).toBe(false);
 
-    const r = await ensureSeeded(missing);
+    const r = await ensureSeeded(missing, EDUCATION_PACK);
     expect(r.alreadySeeded).toBe(false);
     expect(r.report).not.toBeNull();
     expect(r.report!.census).toEqual(expectedCensus());
-    expect(await isSeeded(missing)).toBe(true);
+    expect(await isSeeded(missing, EDUCATION_PACK)).toBe(true);
   }, 120_000);
 });

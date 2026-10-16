@@ -1,6 +1,7 @@
 import { roQuery } from "../falkor/client";
 import { ensureSeeded } from "../graph/seed";
 import type { DomainPack } from "../graph/domain-pack";
+import { mentionsForeignSubject } from "./foreign-subject";
 
 /**
  * Question suggestion and intent resolution.
@@ -46,7 +47,7 @@ export interface GraphFacts {
 /** Read the small set of facts needed to build grounded suggestions. */
 export async function readGraphFacts(
   graphName: string,
-  pack?: DomainPack,
+  pack: DomainPack,
 ): Promise<GraphFacts> {
   await ensureSeeded(graphName, pack);
 
@@ -71,7 +72,7 @@ ORDER BY dependentCount DESC, id
   // The pack names the entity its flagship investigation starts from; fall
   // back to whatever has the most dependents.
   const topRoot =
-    (pack ? entities.find((e) => e.id === pack.scenarioRootId) : undefined) ??
+    entities.find((e) => e.id === pack.scenarioRootId) ??
     entities.find((e) => e.dependentCount > 0) ??
     null;
 
@@ -125,7 +126,7 @@ export function suggestQuestions(facts: GraphFacts): SuggestedQuestion[] {
   if (multi && root) {
     out.push({
       id: "q_why_multi",
-      text: `Why is ${multi.name} affected, and by how many independent routes?`,
+      text: `Why is ${multi.name} affected?`,
       intent: "WHY_AFFECTED",
       entityId: multi.id,
       basis: `${multi.routes} distinct dependency routes reach this entity.`,
@@ -176,6 +177,30 @@ export function suggestQuestions(facts: GraphFacts): SuggestedQuestion[] {
   });
 
   return out.slice(0, 6);
+}
+
+/**
+ * Keep only suggestions that demonstrably resolve to what they advertise.
+ *
+ * The audit found three that did not: a "Why ..." question misrouted to
+ * EVIDENCE because the entity name contains the word "evidence", an evidence
+ * question that picked the wrong root, and a scope question answered for the
+ * wrong organization. Rather than shipping a half-working NLU, anything that
+ * does not round-trip is hidden. A suggestion the product cannot honour is
+ * worse than one it does not offer.
+ */
+export function verifiedSuggestions(
+  facts: GraphFacts,
+  defaultRootId: string | null,
+): SuggestedQuestion[] {
+  return suggestQuestions(facts).filter((s) => {
+    const r = resolveQuestion(s.text, facts, defaultRootId);
+    if (r.intent !== s.intent) return false;
+    if (!s.entityId) return true;
+    // The resolved subject must be the entity the suggestion names.
+    const subject = r.targetEntityId ?? r.rootEntityId;
+    return subject === s.entityId || r.entityIds.includes(s.entityId);
+  });
 }
 
 /* ------------------------------------------------------------------ *
@@ -327,6 +352,26 @@ export function resolveQuestion(
 
   let rootEntityId: string | null;
   let targetEntityId: string | null;
+
+  // A question that names NOTHING in the loaded graph must not be answered
+  // about some other entity. Silently substituting the default root meant an
+  // "what if Acme's CFO resigns?" question produced a confident answer about
+  // the inference gateway. Only the explicitly scoped intents may use the
+  // default root, and only when the user named no entity at all.
+  if (matched.length === 0 && mentionsForeignSubject(q)) {
+    return {
+      intent: "UNSUPPORTED",
+      entityIds: [],
+      rootEntityId: null,
+      targetEntityId: null,
+      unsupportedReason:
+        "That question names something this dataset does not contain.",
+      clarification:
+        `The loaded graph contains ${facts.entities.length} entities, for example: ` +
+        `${facts.entities.slice(0, 4).map((e) => e.name).join("; ")}. ` +
+        `Ask about one of those, or pick a suggested question.`,
+    };
+  }
 
   if (subjectIsTarget) {
     targetEntityId = matched[0] ?? null;

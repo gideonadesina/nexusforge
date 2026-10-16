@@ -8,7 +8,7 @@ loadLocalEnv();
 
 const { getEnv } = await import("../src/lib/env");
 const { analyseImpact, recheckDistinctCount } = await import("../src/lib/engine/impact");
-const { ensureSeeded } = await import("../src/lib/graph/seed");
+const { ensureSeeded, EDUCATION_PACK } = await import("../src/lib/graph/seed");
 const { closeDb } = await import("../src/lib/falkor/client");
 const { SCENARIO_ROOT_ENTITY_ID } = await import("../src/domain/education/seed-data");
 
@@ -16,7 +16,7 @@ const graphName = getEnv().FALKORDB_GRAPH;
 const rootId = process.argv[2] ?? SCENARIO_ROOT_ENTITY_ID;
 
 try {
-  const { alreadySeeded } = await ensureSeeded(graphName);
+  const { alreadySeeded } = await ensureSeeded(graphName, EDUCATION_PACK);
   console.log(alreadySeeded ? `graph ${graphName} already seeded` : `graph ${graphName} seeded now`);
 
   const analysis = await analyseImpact(graphName, rootId);

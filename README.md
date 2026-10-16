@@ -134,7 +134,11 @@ suite.
 - **Ask NexusForge** — suggested questions generated from the loaded graph,
   plus free text, answered deterministically without a language model
 - Constrained agent loop with typed Zod-validated tools, budgets, timeouts and
-  a kill switch; **no tool can approve, reject or run Cypher**
+  a kill switch; **no tool can approve, reject or run Cypher**, and no tool
+  can write at all
+- **The agent is DISABLED by default and disabled in production** — it
+  requires an explicit `NF_AGENT_ENABLED=true`. This is independent of the
+  paid-inference flag.
 
 **Action workflow (Stage 2B)**
 - **Correct claim classification** — `OBSERVED` only for a single relationship
@@ -155,9 +159,10 @@ Qualification and availability rules · replacement-candidate ranking ·
 contradiction detection · enterprise identity or role-based authorization ·
 external action execution.
 
-**The OpenAI planner is built but disabled by default.** It requires both a
-key and `NF_AGENT_LLM=on`, so a key alone can never start billing. The
-deployed site runs the deterministic path only. One controlled paid test was
+**The agent is disabled in production, and paid inference is disabled
+everywhere.** The agent needs `NF_AGENT_ENABLED=true`; the OpenAI planner
+additionally needs `NF_AGENT_LLM=on` and a key. A key alone can never start
+billing. The deployed site runs the deterministic path only. One controlled paid test was
 run locally against `gpt-6-luna`: 5 model requests, 4,711 tokens, 32.7s, and
 the safety invariants held.
 
@@ -337,6 +342,31 @@ names, registers, rosters, and minutes are invented for this demonstration.
 ---
 
 ## Known limitations
+
+### Independent audit (Astra) — status
+
+Two audits were run against an earlier commit. Fixed since:
+
+- **Agent read tools could seed Education data into Northstar.** Read tools
+  called `ensureSeeded` with no domain pack, so the education default applied.
+  Seeding is removed from the tool surface entirely, the pack argument is now
+  required (forgetting it is a type error), and the agent is disabled by
+  default. **Both production graphs were audited read-only and found CLEAN** —
+  the defect was latent, never triggered.
+- **"Independent routes" was an unsupported claim.** The Meridian routes share
+  the obligation, audit processor, topic and gateway. Wording is now "distinct
+  routes", with an explicit note that they may share intermediates.
+- **Reassignment proposed for unsupported findings.** Suppressed: a finding
+  with MISSING evidence gets only the evidence-gap proposal.
+- **Misrouting suggested questions.** Suggestions that do not round-trip to
+  their advertised intent and entity are hidden rather than shipped broken.
+- **Scope answer named the wrong organization.** It now reports the loaded one.
+- **Silent fallback to an unrelated root.** A question naming something the
+  dataset does not contain is refused with an explanation.
+- **Stale organization responses.** A request-generation guard discards any
+  response whose organization is no longer selected.
+- **Mobile Inspector cleared the trace.** Inspector visibility is now separate
+  from the traced selection.
 
 ### Mobile graph access — HIGH PRIORITY UX (partially addressed)
 

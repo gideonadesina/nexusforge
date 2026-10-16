@@ -14,7 +14,7 @@ Observed on 2026-10-15 (Northstar Labs, depth bound 6):
 | Server analysis time | 39–40 ms |
 | FalkorDB health round trip | 3 ms |
 | Meridian commitment distance | 4 edge hops |
-| Proposals generated | 7 (4 reassign, 3 evidence-gap) |
+| Proposals generated | re-check before recording: reassignment proposals are now suppressed for unsupported findings, so the mix has changed |
 
 ---
 
@@ -36,7 +36,10 @@ synthetic-data notice visible.*
 > suggested questions are generated from the graph that is actually loaded, so
 > the system can only offer what it can answer."
 
-*Click: "What is exposed if AI Inference Gateway becomes unavailable?"*
+*In the toolbar, with "AI Inference Gateway" selected, click **Run analysis**.*
+
+(The Ask panel's suggested questions are available, but the toolbar Run
+analysis action is the verified path and is what the video shows.)
 
 > "Analysis complete in forty milliseconds. Ten exposed entities across twelve
 > dependency paths — computed by FalkorDB, not retrieved from a cache."
@@ -63,7 +66,7 @@ synthetic-data notice visible.*
 
 > "Every link is backed by a source record."
 
-*Open the Inspector; scroll to evidence.*
+*The Inspector is already open from the Trace click; scroll to evidence.*
 
 > "Here is the event contract, the audit design note, the compliance policy,
 > the signed MSA clause. Verbatim excerpts, not summaries. The Inspector also
@@ -72,7 +75,8 @@ synthetic-data notice visible.*
 >
 > And here is what NexusForge will not do."
 
-*Click the external failover plan — dashed border, hollow.*
+*Close the Inspector — note the traced path stays highlighted — then click
+the external failover plan, which has a dashed border and hollow fill.*
 
 > "The recovery plan cites an architecture decision whose current status cannot
 > be found. So this finding is marked unsupported, with the missing reference
@@ -85,7 +89,10 @@ engineer and no deputy. "It reports the gap. It does not invent a replacement."*
 
 ## 1:10–1:30 — A controlled decision
 
-> "Seven actions are proposed by versioned deterministic rules."
+> "Actions are proposed by versioned deterministic rules — and note what is
+> NOT proposed. The failover plan gets no reassignment action, because its
+> evidence does not resolve. The only thing proposed for it is closing that
+> gap."
 
 *Approve one.*
 
@@ -117,9 +124,21 @@ engineer and no deputy. "It reports the gap. It does not invent a replacement."*
 
 ---
 
+## Changed since the first draft — re-verify before recording
+
+- The demo now opens on **Northstar Labs** by default.
+- Use the toolbar **Run analysis** button; do not rely on Ask suggestions.
+- Reassignment proposals are suppressed for findings whose evidence is
+  MISSING, so the proposal count differs from the earlier draft. Count them
+  on screen rather than quoting the old number.
+- Closing the Inspector now preserves the trace. The script uses that.
+- The agent is DISABLED in production. Do not show or mention it as live.
+
 ## Recording checklist
 
-- [ ] Re-run the analysis and update any number that changed.
+- [ ] Re-run the analysis and update EVERY number that changed.
+- [ ] Confirm the proposal count on screen before narrating it.
+- [ ] Confirm the Meridian chain is still four relationships.
 - [ ] Hard-refresh so the reveal animation plays from the start.
 - [ ] Have the Inspector scrolled to evidence before recording that beat.
 - [ ] Do not show the `.env.local` file, terminal with credentials, or the

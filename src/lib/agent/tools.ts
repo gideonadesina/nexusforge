@@ -1,7 +1,6 @@
 import { z } from "zod";
 import { roQuery } from "../falkor/client";
 import { analyseImpact } from "../engine/impact";
-import { ensureSeeded } from "../graph/seed";
 import { listProposals } from "../actions/actions";
 import { DepthSchema } from "../graph/depth";
 
@@ -18,6 +17,15 @@ import { DepthSchema } from "../graph/depth";
  *    structural.
  * 3. EVERY INPUT IS ZOD-VALIDATED before it reaches the database, including
  *    traversal depth, which is the one value interpolated into Cypher.
+ * 4. NO TOOL WRITES. Every tool here is read-only and must stay that way.
+ *
+ * On (4): these tools previously called `ensureSeeded(ctx.graphName)` with no
+ * domain pack, so the EDUCATION pack was used by default. Against a correctly
+ * seeded Northstar graph the education version check fails, and a read
+ * operation would have seeded education data into Northstar's graph. Seeding
+ * has been removed from the tool surface entirely -- a read tool must never
+ * write, and initialization is the caller's explicit responsibility with an
+ * explicit pack. `tests/agent-tools-readonly.test.ts` enforces this.
  */
 
 export interface ToolContext {
@@ -56,7 +64,6 @@ const listEntities: AgentTool = {
   mutates: false,
   async run(args, ctx) {
     const min = (args as { minDependents?: number }).minDependents ?? 0;
-    await ensureSeeded(ctx.graphName);
     const res = await roQuery<{ id: string; type: string; name: string; dependentCount: number }>(
       ctx.graphName,
       `
@@ -94,7 +101,6 @@ const analyseImpactTool: AgentTool = {
   mutates: false,
   async run(args, ctx) {
     const a = args as { rootEntityId: string; maxDepth?: number };
-    await ensureSeeded(ctx.graphName);
     const analysis = await analyseImpact(ctx.graphName, a.rootEntityId, {
       ...(a.maxDepth !== undefined ? { maxDepth: a.maxDepth } : {}),
     });

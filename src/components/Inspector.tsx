@@ -144,9 +144,10 @@ export function Inspector({
                 ))}
               </ul>
               <p className="mt-2 text-xs text-[var(--color-ink-faint)]">
-                Several independent routes reach this entity. Select one to trace
-                it on the canvas. The entity is still counted once in the distinct
-                impact total.
+                Several distinct routes reach this entity. They are not
+                necessarily independent — they may share intermediate entities.
+                Select one to trace it on the canvas. The entity is still counted
+                once in the distinct impact total.
               </p>
             </Section>
           )}

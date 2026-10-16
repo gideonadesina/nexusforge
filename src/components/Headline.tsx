@@ -30,9 +30,9 @@ export function Headline({
   const open = proposals.filter((p) => p.state === "PROPOSED").length;
 
   return (
-    <div className="border-b border-[var(--color-line)] bg-[var(--color-surface-1)] px-6 py-3">
+    <div className="w-full max-w-full overflow-x-hidden border-b border-[var(--color-line)] bg-[var(--color-surface-1)] px-4 py-3 sm:px-6">
       <div className="flex flex-wrap items-baseline justify-between gap-x-6 gap-y-2">
-        <p className="max-w-3xl text-sm leading-relaxed">
+        <p className="min-w-0 max-w-3xl text-sm leading-relaxed">
           A change to{" "}
           <span className="nf-graph-value text-[var(--color-ink)]">{analysis.root.name}</span>{" "}
           exposes{" "}
@@ -70,7 +70,7 @@ export function Headline({
             <button
               type="button"
               onClick={onSkip}
-              className="border border-[var(--color-line-strong)] px-2 py-1 text-xs text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
+              className="min-h-9 shrink-0 border border-[var(--color-line-strong)] px-3 py-1 text-xs text-[var(--color-ink-muted)] hover:text-[var(--color-ink)]"
             >
               Skip reveal
             </button>
