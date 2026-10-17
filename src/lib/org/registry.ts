@@ -2,7 +2,7 @@ import { z } from "zod";
 import { GRAPH_PREFIX } from "../env";
 
 /**
- * Organization registry — the ONLY place a graph name can come from.
+ * Organization registry: the ONLY place a graph name can come from.
  *
  * The browser sends an organization id. It never sends, and can never
  * influence, a FalkorDB graph name. An unknown id fails closed rather than

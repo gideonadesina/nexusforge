@@ -157,8 +157,8 @@ function whyAnswer(a: ImpactAnalysis, targetId: string | undefined): GroundedAns
       : `Exactly one route reaches it. `) +
     `This conclusion is ${hit.claim}` +
     (hit.claim === "DERIVED"
-      ? " — it was computed by chaining relationships, not read from a single record. "
-      : " — a single evidenced relationship states it. ") +
+      ? ". It was computed by chaining relationships, not read from a single record. "
+      : ". A single evidenced relationship states it. ") +
     `Evidence is ${hit.evidenceStatus}.`;
 
   return {
@@ -202,7 +202,7 @@ function evidenceAnswer(a: ImpactAnalysis, targetId: string | undefined): Ground
   }
 
   const cited = hit.evidence
-    .map((e) => `${e.reference} — "${e.excerpt}"`)
+    .map((e) => `${e.reference}: "${e.excerpt}"`)
     .join(" | ");
 
   return {
@@ -282,7 +282,7 @@ async function actionsAnswer(
       `${proposals.length} ${proposals.length === 1 ? "action is" : "actions are"} proposed: ` +
       proposals.map((p) => `${p.actionType} on ${p.targetEntityName} [${p.state}]`).join("; ") +
       `. ${open.length} await a decision. Approval is recorded by the holder of this run's owner ` +
-      `token and is explicitly NOT execution — NexusForge performs no external action.`,
+      `token and is explicitly NOT execution. NexusForge performs no external action.`,
     focusEntityIds: proposals.map((p) => p.targetEntityId),
     analysis: a,
     citedSourceIds: [],

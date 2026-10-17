@@ -15,7 +15,7 @@ import type { Planner, PlannedCall, LoopState } from "./loop";
  * A fixed investigation procedure: establish the graph, trace impact, then
  * interrogate the most interesting findings for evidence.
  *
- * It is deterministic — the same graph produces the same transcript — which
+ * It is deterministic (the same graph produces the same transcript), which
  * makes it demonstrable and testable, but it is not reasoning.
  */
 export function scriptedPlanner(rootEntityId: string): Planner {

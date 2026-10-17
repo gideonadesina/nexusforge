@@ -11,7 +11,7 @@ import type {
  * `seed.ts` previously imported the education pack directly, which blocked a
  * second sector. It now takes a pack as an argument, so the reasoning engine,
  * queries, evidence rules and seeding logic are shared unchanged across
- * sectors — only the data differs.
+ * sectors. Only the data differs.
  */
 export interface DomainPack {
   /** Stable domain key stored on every entity, e.g. "education". */

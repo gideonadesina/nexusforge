@@ -23,7 +23,7 @@ import { AskPanel } from "./AskPanel";
  * the Inspector sliding over the canvas on the right.
  *
  * Every number on this screen comes from the API, which computes it from
- * FalkorDB. There is no client-side fabrication and no placeholder data — if
+ * FalkorDB. There is no client-side fabrication and no placeholder data. If
  * a request fails, the failure is shown.
  */
 
@@ -284,7 +284,7 @@ export function Investigation() {
         ]);
         addLog(
           "decision recorded",
-          `${decision.toLowerCase()} — not executed`,
+          `${decision.toLowerCase()}, not executed`,
           [
             `POST /api/proposals/.../decision → 200`,
             `transition: ${body.transition.fromState} → ${body.transition.toState}`,
@@ -373,7 +373,7 @@ export function Investigation() {
       </div>
 
       <div className="flex min-h-0 flex-1 flex-col lg:flex-row">
-        {/* LEFT — narrative */}
+        {/* LEFT: narrative */}
         <div
           className={`nf-scroll w-full min-w-0 max-w-full shrink-0 overflow-x-hidden overflow-y-auto border-[var(--color-line)] p-4 sm:p-5 lg:block lg:w-[23rem] lg:border-r ${
             mobileView === "graph" ? "hidden" : "block"
@@ -498,7 +498,7 @@ export function Investigation() {
           )}
         </div>
 
-        {/* CENTRE — canvas, with the Inspector sliding over it */}
+        {/* CENTRE: canvas, with the Inspector sliding over it */}
         <main
           className={`relative min-h-0 flex-1 overflow-hidden bg-[var(--color-surface-1)] lg:block ${
             mobileView === "narrative" ? "hidden" : "block"

@@ -26,7 +26,7 @@ export const RULE_COVER_DIRECT = "rule.action.cover-direct-dependency@1";
 export const RULE_EVIDENCE_GAP = "rule.action.resolve-evidence-gap@1";
 
 /**
- * Rule 1 — a direct dependency loses its provider.
+ * Rule 1: a direct dependency loses its provider.
  *
  * An entity one relationship away from the changed entity depends on it with
  * no intermediary absorbing the change, so it needs an explicit replacement
@@ -59,7 +59,7 @@ function coverDirectDependency(e: ImpactedEntity): ProposalDraft | null {
 }
 
 /**
- * Rule 2 — the dependency chain cites evidence that does not resolve.
+ * Rule 2: the dependency chain cites evidence that does not resolve.
  *
  * This proposes resolving the gap, NOT acting on the unsupported conclusion.
  * It fires only when the graph actually contains a gap, so on a fully

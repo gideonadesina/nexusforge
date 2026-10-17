@@ -18,7 +18,7 @@ export const maxDuration = 60; // seconds; must be a literal for Next segment co
  *
  * The deterministic path always runs and always produces the answer's facts.
  * A model, when explicitly enabled, adds tool-planning and a narration layer
- * on top — it never replaces the grounded answer and never decides what is
+ * on top. It never replaces the grounded answer and never decides what is
  * true.
  *
  * Model use requires BOTH a key and NF_AGENT_LLM=on, so a key alone can never

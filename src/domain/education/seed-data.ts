@@ -60,7 +60,7 @@ export const ORGANIZATION = {
 export const SOURCES: SeedSource[] = [
   {
     id: "src_resignation_okonkwo_2026_10_12",
-    reference: "Resignation letter — A. Okonkwo — filed 2026-10-12, ref HR/RES/2026/41",
+    reference: "Resignation letter, A. Okonkwo, filed 2026-10-12, ref HR/RES/2026/41",
     excerpt:
       "I write to tender my resignation from my post as Physics teacher, effective Friday 16 October 2026.",
     sourceType: "resignation_letter",
@@ -69,14 +69,14 @@ export const SOURCES: SeedSource[] = [
     id: "src_staff_register_2026t1",
     reference: "Staff teaching register, Term 1 2026/2027, page 3",
     excerpt:
-      "Okonkwo, A. — Physics — assigned SS2 Physics and SS3 Physics. Bello, F. — Chemistry, Physics (SS1 only).",
+      "Okonkwo, A. (Physics): assigned SS2 Physics and SS3 Physics. Bello, F. (Chemistry): Physics, SS1 only.",
     sourceType: "staff_register",
   },
   {
     id: "src_timetable_2026t1",
     reference: "Master timetable, Term 1 2026/2027, revision 4",
     excerpt:
-      "SS2 Physics — Mon P3 (Lab 1). SS3 Physics — Wed P1 (Lab 1). SS1 Physics — Thu P2 (Room 12).",
+      "SS2 Physics: Mon P3 (Lab 1). SS3 Physics: Wed P1 (Lab 1). SS1 Physics: Thu P2 (Room 12).",
     sourceType: "timetable",
   },
   {
@@ -90,7 +90,7 @@ export const SOURCES: SeedSource[] = [
     id: "src_lab_duty_roster_2026t1",
     reference: "Science laboratory duty roster, Term 1 2026/2027",
     excerpt:
-      "Physics practical supervision and apparatus preparation — A. Okonkwo (primary). No named deputy recorded for Term 1.",
+      "Physics practical supervision and apparatus preparation: A. Okonkwo (primary). No named deputy recorded for Term 1.",
     sourceType: "duty_roster",
   },
   {
@@ -103,7 +103,7 @@ export const SOURCES: SeedSource[] = [
   {
     id: "src_pe_roster_2026t1",
     reference: "Physical education roster, Term 1 2026/2027",
-    excerpt: "SS1 Physical Education and the athletics club — D. Danjuma.",
+    excerpt: "SS1 Physical Education and the athletics club: D. Danjuma.",
     sourceType: "duty_roster",
   },
 ];
@@ -194,14 +194,14 @@ export const ENTITIES: SeedEntity[] = [
   {
     id: "ent_slot_mon_p3",
     type: "TimetableSlot",
-    name: "Monday Period 3 — Lab 1",
+    name: "Monday Period 3, Lab 1",
     intermediary: false,
     sourceIds: ["src_timetable_2026t1"],
   },
   {
     id: "ent_slot_wed_p1",
     type: "TimetableSlot",
-    name: "Wednesday Period 1 — Lab 1",
+    name: "Wednesday Period 1, Lab 1",
     intermediary: false,
     sourceIds: ["src_timetable_2026t1"],
   },

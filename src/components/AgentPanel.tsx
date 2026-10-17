@@ -102,13 +102,13 @@ export function AgentPanel({
           >
             {result.mode === "scripted" ? (
               <>
-                <strong>Scripted procedure</strong> — a fixed investigation
+                <strong>Scripted procedure</strong>: a fixed investigation
                 sequence, not a language model. Deterministic: the same graph
                 produces the same transcript.
               </>
             ) : (
               <>
-                <strong>Model planner</strong> — tool choices made by a language
+                <strong>Model planner</strong>: tool choices made by a language
                 model, constrained to fixed query templates.
               </>
             )}

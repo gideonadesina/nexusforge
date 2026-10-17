@@ -22,8 +22,8 @@ export interface Section {
 /**
  * Partition the impacted set.
  *
- * Sections are derived from graph structure only — hop distance, route
- * multiplicity, terminality, evidence completeness — so the grouping carries
+ * Sections are derived from graph structure only (hop distance, route
+ * multiplicity, terminality, evidence completeness), so the grouping carries
  * across sectors and never depends on domain vocabulary.
  */
 export function buildSections(impacted: ImpactedEntity[]): Section[] {
@@ -59,7 +59,7 @@ export function buildSections(impacted: ImpactedEntity[]): Section[] {
     {
       key: "surface",
       title: "Where impact surfaces",
-      rule: "nothing else in this analysis depends on these — the exposure ends here",
+      rule: "nothing else in this analysis depends on these, so the exposure ends here",
       entities: impacted.filter((e) => !appearsAsIntermediate.has(e.entityId)),
     },
     {

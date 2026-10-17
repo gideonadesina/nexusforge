@@ -5,7 +5,7 @@ import type { ImpactedEntity } from "./types";
 import { EvidenceCard, EvidenceBadge, ClaimBadge } from "./EvidenceCard";
 
 /**
- * Inspector sheet — the receipt.
+ * Inspector sheet: the receipt.
  *
  * Slides over the canvas as a floating layer (the only place translucency is
  * allowed). Shows the exact Cypher template, the bound parameters, the rows
@@ -82,7 +82,7 @@ export function Inspector({
             <EvidenceBadge status={entity.evidenceStatus} />
             {!entity.supported && (
               <span className="text-xs text-[var(--color-sev-high)]">
-                unsupported — must not be acted on
+                unsupported, must not be acted on
               </span>
             )}
           </div>
@@ -145,7 +145,7 @@ export function Inspector({
               </ul>
               <p className="mt-2 text-xs text-[var(--color-ink-faint)]">
                 Several distinct routes reach this entity. They are not
-                necessarily independent — they may share intermediate entities.
+                necessarily independent, and may share intermediate entities.
                 Select one to trace it on the canvas. The entity is still counted
                 once in the distinct impact total.
               </p>

@@ -6,7 +6,7 @@ import type { AnalysisResponse, Proposal } from "./types";
  * Investigation headline.
  *
  * Every number is counted from the verified result. No severity is assigned,
- * no urgency is implied, and nothing is hardcoded — if the graph changes, the
+ * no urgency is implied, and nothing is hardcoded. If the graph changes, the
  * sentence changes with it.
  *
  * The timing line states what actually happened: the analysis is already
@@ -38,7 +38,7 @@ export function Headline({
           exposes{" "}
           <Count n={analysis.distinctImpactedCount} noun="entity" plural="entities" /> across{" "}
           <Count n={analysis.totalPathCount} noun="dependency path" plural="dependency paths" />
-          {" — "}
+          {". "}
           <Count n={direct} noun="directly affected" plural="directly affected" bare />,{" "}
           <Count n={indirect} noun="through intermediaries" plural="through intermediaries" bare />.{" "}
           {incomplete === 0 ? (

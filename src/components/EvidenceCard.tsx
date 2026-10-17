@@ -32,7 +32,7 @@ export function EvidenceCard({ evidence }: { evidence: EvidenceRef }) {
  * Evidence completeness, communicated by FORM first.
  *
  * A filled square means complete, a half square partial, a hollow square
- * missing — legible in greyscale and to a colour-blind reader.
+ * missing. Legible in greyscale and to a colour-blind reader.
  */
 export function EvidenceBadge({ status }: { status: EvidenceStatus }) {
   const glyph = status === "COMPLETE" ? "■" : status === "PARTIAL" ? "◧" : "□";

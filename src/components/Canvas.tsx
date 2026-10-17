@@ -10,7 +10,7 @@ import { deriveEdges, traceRoute, type GraphEdge } from "./graph-edges";
  * One column per hop, left to right, so distance from the change is spatial
  * rather than a number to read. Every edge corresponds to a DEPENDS_ON
  * relationship the engine actually traversed, keyed by its real relationship
- * id — nothing is drawn for visual effect.
+ * id. Nothing is drawn for visual effect.
  *
  * Edges are measured from the live DOM and rendered into an SVG layer that
  * lives inside the same scrolling content, so they stay glued to their nodes
@@ -124,8 +124,22 @@ export function Canvas({
   const visibleHop = (hop: number) => hop <= revealedHops;
 
   return (
-    <div className="nf-scroll h-full overflow-auto p-6">
-      <div ref={contentRef} className="relative inline-block min-w-full">
+    /*
+      The canvas region fills its parent, but the graph itself is only as tall
+      as its tallest hop column, which on a large desktop left most of the
+      region as dead space with the legend stranded in the middle of it.
+      Two changes fix that without touching the graph:
+        - the scroll area grows and the legend is pinned to the bottom edge,
+          so the region reads as bounded rather than unfinished
+        - the content block is vertically centred when it is shorter than the
+          area, and falls back to normal top-aligned scrolling when it is not
+      Node positions are measured after layout, and the SVG is sized and
+      positioned relative to the same content block, so edges follow.
+    */
+    <div className="flex h-full flex-col">
+      <div className="nf-scroll min-h-0 flex-1 overflow-auto p-6">
+        <div className="flex min-h-full items-center">
+          <div ref={contentRef} className="relative inline-block min-w-full">
         {/* Edge layer. Sits under the cards and scrolls with them. */}
         <EdgeLayer
           edges={edges}
@@ -180,16 +194,21 @@ export function Canvas({
               </ul>
             </section>
           ))}
+            </div>
+          </div>
         </div>
+
+        {impacted.length === 0 && (
+          <p className="mt-8 text-sm text-[var(--color-ink-muted)]">
+            No dependent entities were found within the traversal bound.
+          </p>
+        )}
       </div>
 
-      {impacted.length === 0 && (
-        <p className="mt-8 text-sm text-[var(--color-ink-muted)]">
-          No dependent entities were found within the traversal bound.
-        </p>
-      )}
-
-      <Legend />
+      {/* Pinned to the bottom edge of the region, not floating after the graph. */}
+      <div className="shrink-0 border-t border-[var(--color-line)] px-6 py-3">
+        <Legend />
+      </div>
     </div>
   );
 }
@@ -283,7 +302,7 @@ function EdgeLayer({
 
 function Legend() {
   return (
-    <div className="mt-8 flex flex-wrap items-center gap-x-6 gap-y-2 border-t border-[var(--color-line)] pt-3 text-[0.6875rem] text-[var(--color-ink-faint)]">
+    <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-[0.6875rem] text-[var(--color-ink-faint)]">
       <span className="flex items-center gap-1.5">
         <svg width="34" height="8" aria-hidden="true">
           <line x1="32" y1="4" x2="2" y2="4" stroke="var(--color-line-strong)" strokeWidth="1" />

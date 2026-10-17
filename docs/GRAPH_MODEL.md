@@ -12,7 +12,7 @@ lives in the `type` property and in the domain pack
 (`src/domain/education/seed-data.ts`), never in the traversal logic.
 
 That is why nodes use a single `:Entity` label with a `type` property rather
-than `:Teacher`, `:Class`, and so on — swapping in a logistics or healthcare
+than `:Teacher`, `:Class` and so on. Swapping in a logistics or healthcare
 pack requires new seed data, not a new query engine.
 
 ## Node labels
@@ -33,7 +33,7 @@ responsibility, committee, examination.
 
 ### `:Source`
 
-An evidence record. Deliberately minimal — this is **not** a document
+An evidence record. Deliberately minimal: this is **not** a document
 management subsystem.
 
 | Property | Type | Meaning |
@@ -62,7 +62,7 @@ SS3 Physics  -[:DEPENDS_ON]->  Teaching assignment  -[:DEPENDS_ON]->  A. Okonkwo
 
 | Property | Type | Meaning |
 |---|---|---|
-| `id` | string | Stable edge identifier. The MERGE key — this is what makes re-seeding idempotent. |
+| `id` | string | Stable edge identifier. The MERGE key, this is what makes re-seeding idempotent. |
 | `kind` | string | Domain flavour, e.g. `staffed_by`, `taught_under`. Never interpreted by the engine. |
 | `sourceId` | string | The `:Source` attesting to this dependency. |
 
@@ -78,8 +78,8 @@ Entity-level provenance: the record attesting that this entity exists.
 
 These are **not** the same number and are never conflated.
 
-- `edgeHops` — graph relationships traversed.
-- `entityHops` — meaningful organizational transitions, computed by subtracting
+- `edgeHops`: graph relationships traversed.
+- `entityHops`: meaningful organizational transitions, computed by subtracting
   interior `intermediary` nodes.
 
 An `Assignment` exists only to link a person to a duty, so:
@@ -100,7 +100,7 @@ seed is read by analyses and never written by them.
 | Property | Meaning |
 |---|---|
 | `analysisRunId` | UUID. Indexed. An identifier, **not** a credential. |
-| `rootEntityId` | The change being analysed — the input event reference. |
+| `rootEntityId` | The change being analysed, i.e. the input event reference. |
 | `maxDepth` | Validated traversal bound actually applied. |
 | `status` | `PENDING` / `COMPLETED` / `FAILED`. |
 | `ruleId` | Versioned rule that produced the findings. |
@@ -116,7 +116,7 @@ seed is read by analyses and never written by them.
 | `findingId` | Deterministic: `${analysisRunId}::${entityId}`. The MERGE key. |
 | `analysisRunId` | Owning run. |
 | `entityId` / `entityType` / `entityName` | The exposed entity. |
-| `claim` | `OBSERVED` at this stage. |
+| `claim` | `OBSERVED` for a single evidenced relationship, `DERIVED` for a chained conclusion. |
 | `ruleId` | Versioned derivation rule. |
 | `verificationStatus` | `UNVERIFIED` / `VERIFIED` / `CONTRADICTED`. |
 | `shortestPathEntityIds` | Ordered entity ids of the shortest route. |
@@ -155,8 +155,8 @@ RETURN size(findings) AS findingsWritten
 Two properties matter here:
 
 1. **Authorization and mutation are one statement.** If the leading `MATCH`
-   binds nothing — wrong token, wrong run, no such run — every later clause is
-   skipped. No check-then-write window exists.
+   binds nothing (wrong token, wrong run, or no such run), every later clause
+   is skipped. No check-then-write window exists.
 2. **`MERGE` on a deterministic `findingId`** makes a retry converge instead of
    duplicating. `createdAt` is preserved via `coalesce`; `updatedAt` advances.
 
@@ -187,7 +187,7 @@ issued when depth is invalid.
 | `state` | `PROPOSED` / `APPROVED` / `REJECTED`. Nothing else exists. |
 | `ruleId` | Versioned generating rule. |
 | `rationale` | Deterministic text built from graph facts. |
-| `claim` | Always `ASSESSED` — a recommendation is a judgment. |
+| `claim` | Always `ASSESSED`, because a recommendation is a judgment. |
 | `evidenceStatus` / `supported` | Inherited from the justifying finding. |
 | `decidedBy` | `DEMO_RUN_OWNER`, or null. |
 
@@ -242,18 +242,34 @@ second audit event. A wrong token fails the first MATCH identically.
 
 ## Claim classification
 
-Every finding carries a claim label:
+Two independent axes, deliberately not conflated.
+
+**How the claim was established:**
 
 | Label | Meaning |
 |---|---|
-| `OBSERVED` | Directly represented in the graph with source evidence. |
-| `DERIVED` | Computed by a named, versioned rule from observed facts. |
-| `ASSESSED` | Judgment or interpretation. Any AI-authored assessment must use this. |
+| `OBSERVED` | A **single** relationship, backed by evidence that resolves. |
+| `DERIVED` | Computed by chaining two or more relationships under a versioned rule. |
+| `ASSESSED` | Judgment or interpretation. Action proposals, and any AI-authored assessment, use this. |
 
-Stage 1 emits only `OBSERVED`. The dependency chain and its evidence are
-present in the graph, so exposure is an observation. **No severity, failure, or
-eligibility judgment is produced** — those would be assessments, and inventing
-them is exactly the failure mode this project exists to avoid.
+**Whether it is supported**, assessed per edge, because a route is only as
+supported as its weakest link:
+
+| `evidenceStatus` | Meaning |
+|---|---|
+| `COMPLETE` | Every traversed edge cites a source that exists. |
+| `PARTIAL` | Some edges resolve, some do not. |
+| `MISSING` | No edge on the route resolves. |
+
+A one-hop dependency whose evidence does not resolve is not an observed fact:
+it degrades to `DERIVED` with `supported: false`. Unresolved references are
+listed explicitly in `unresolvedSourceIds` rather than hidden, and
+`assertVerifiableOnlyIfSupported` makes "an unsupported finding may never be
+marked verified" an enforced invariant rather than a comment.
+
+**No severity, failure, or eligibility judgment is produced.** Those would be
+assessments, and inventing them is exactly the failure mode this project
+exists to avoid.
 
 > A dependency path proves **exposure** to a change. It does not prove
 > operational failure. Connectivity is not consequence.
@@ -264,14 +280,14 @@ them is exactly the failure mode this project exists to avoid.
 
 Deliberately constructed features:
 
-1. **A genuine multi-hop chain** — the WAEC mock exam reaches the resigning
+1. **A genuine multi-hop chain**, the WAEC mock exam reaches the resigning
    teacher only through intermediate nodes.
-2. **Multiple routes to one entity** — the mock exam has **three** distinct
+2. **Multiple routes to one entity**, the mock exam has **three** distinct
    routes; the lab-practical responsibility has **two**, of different lengths
    (1 and 2 hops). This is the relationship-uniqueness fixture.
-3. **A deliberate cycle** — examinations committee ↔ science examinations
+3. **A deliberate cycle**, examinations committee ↔ science examinations
    coordination, to prove bounded traversal.
-4. **Decoys** — `SS1 Physics` (same subject word, taught by a different
+4. **Decoys**, `SS1 Physics` (same subject word, taught by a different
    teacher), plus a PE teacher, PE assignment, and athletics club. They share
    vocabulary but have **no dependency route** to the resigning teacher, so a
    keyword-matching system would wrongly include them and a graph traversal
@@ -310,8 +326,8 @@ ORDER BY entityId, edgeHops, pathIds
 
 Notes:
 
-- `$rootId` is parameterized. The depth bound **cannot** be — openCypher
-  rejects a parameter inside `*1..n` — so it is validated as an integer in
+- `$rootId` is parameterized. The depth bound **cannot** be, openCypher
+  rejects a parameter inside `*1..n`, so it is validated as an integer in
   `1..8` by `assertDepth()` and interpolated. Nothing else is interpolated, and
   no caller may supply raw Cypher.
 - The `ALL(...)` predicate enforces node-distinctness. Relationship-uniqueness
@@ -329,7 +345,7 @@ WHERE affected.id <> $rootId
 RETURN count(DISTINCT affected.id) AS distinctCount
 ```
 
-If the two disagree, one is wrong — the test asserts they agree rather than
+If the two disagree, one is wrong, the test asserts they agree rather than
 trusting either alone.
 
 ### Idempotent seed pattern
@@ -350,5 +366,5 @@ SET r.kind = row.kind, r.sourceId = row.sourceId
   enforced in `assertOwnedGraph()` at the client boundary. Reads and writes to
   any other graph throw before reaching the server.
 - **Read path:** all analysis queries use `GRAPH.RO_QUERY`. The server rejects
-  writes on that channel — verified for `CREATE`, `SET`, `DELETE`, `MERGE`.
+  writes on that channel, verified for `CREATE`, `SET`, `DELETE`, `MERGE`.
 - **Timeouts:** every query carries a server-side `TIMEOUT`.

@@ -113,7 +113,7 @@ function ProposalCard({
         <EvidenceBadge status={proposal.evidenceStatus} />
         {!proposal.supported && (
           <span className="text-xs text-[var(--color-sev-high)]">
-            unsupported — resolve evidence first
+            unsupported, resolve evidence first
           </span>
         )}
         <button
@@ -137,7 +137,7 @@ function ProposalCard({
           <div className="flex gap-2">
             <dt className="text-[var(--color-ink-faint)]">claim</dt>
             <dd className="nf-graph-value text-[var(--color-ink-muted)]">
-              {proposal.claim} — a recommendation, not a graph fact
+              {proposal.claim}: a recommendation, not a graph fact
             </dd>
           </div>
           <div className="flex gap-2">

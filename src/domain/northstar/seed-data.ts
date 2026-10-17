@@ -166,7 +166,7 @@ export const ENTITIES: SeedEntity[] = [
   {
     id: "ns_commitment_meridian",
     type: "CustomerCommitment",
-    name: "Meridian Health MSA — compliance evidence clause 8.2",
+    name: "Meridian Health MSA, compliance evidence clause 8.2",
     intermediary: false,
     sourceIds: ["src_ns_meridian_msa"],
   },
@@ -198,7 +198,7 @@ export const ENTITIES: SeedEntity[] = [
   {
     id: "ns_person_okafor",
     type: "Person",
-    name: "D. Okafor (Staff SRE — departed 2026-09-30)",
+    name: "D. Okafor (Staff SRE, departed 2026-09-30)",
     intermediary: false,
     sourceIds: ["src_ns_oncall_roster"],
   },
@@ -351,7 +351,7 @@ export const DEPENDENCIES: SeedDependency[] = [
     sourceId: "src_ns_oncall_roster",
   },
 
-  // (D) Decoys — plausible, but no route to the gateway.
+  // (D) Decoys: plausible, but no route to the gateway.
   {
     id: "nsdep_billing_on_db",
     from: "ns_svc_billing_api",
