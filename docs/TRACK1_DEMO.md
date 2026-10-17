@@ -51,18 +51,55 @@ entities via 12 paths, 3 OBSERVED, 7 DERIVED, 3 with unresolved evidence.**
 
 **Step 3.** The model stopped and reported that it could not name the exposed
 entities, because the tool summary gave it counts and no ids. It declined to
-invent one. That was a real defect in the tool, not in the model, and it is
-now fixed: `analyse_impact` lists every exposed entity with hop distance,
-claim class and evidence status.
+invent one.
 
-Usage for that run: **3 model requests, 2,414 input + 195 output = 2,609
-tokens, 32.8 seconds.** Graph census identical before and after.
+That was a real defect in the tool, not in the model. `analyse_impact` now
+lists every exposed entity with hop distance, claim class and evidence status.
 
 ### Why the honest failure is the better story
 
 The model had an obvious cheap option: guess an entity id that looked like the
 others and call `explain_path` with it. It would have produced a confident,
 well-formatted, completely fabricated answer. It said it could not instead.
+
+## The production run, after the fix
+
+Against the live public deployment, over HTTPS, exactly as a visitor's browser
+reaches it:
+
+```bash
+npx tsx scripts/prod-smoke-test.ts --spend
+```
+
+**Step 1.** `list_entities`, `minDependents: 0`. 18 entities.
+
+**Step 2.** `analyse_impact`, `rootEntityId: "ns_svc_inference_gateway"`,
+`maxDepth: 8`. The depth is the model's own choice. 10 exposed entities, 12
+paths, 3 OBSERVED, 7 DERIVED, 3 with unresolved evidence.
+
+**Step 3.** `get_evidence` on `ns_plan_failover_external`. This is the
+interesting one. Given ten entities it could have inspected, the model picked
+one of the three flagged UNSUPPORTED rather than one of the seven with
+complete evidence. The tool returned: *"No evidence resolved. Treat as
+unsupported."*
+
+**Final answer:**
+
+> A change to `ns_svc_inference_gateway` exposes 10 distinct entities through
+> 12 paths (within depth 8): 3 OBSERVED and 7 DERIVED. Three findings have
+> unresolved evidence: `ns_assign_oncall_gateway` (PARTIAL, UNSUPPORTED),
+> `ns_plan_failover_external` (MISSING, UNSUPPORTED), and
+> `ns_resp_gateway_failover` (PARTIAL, UNSUPPORTED). The evidence lookup for
+> `ns_plan_failover_external` resolved no evidence; treat it as unsupported.
+> The other seven exposed entities have COMPLETE evidence.
+
+**4 model requests, 3,722 input + 263 output = 3,985 tokens, 8.7 seconds,
+$0.000504.** Graph census byte-identical before and after: 18 entities, 8
+sources, 16 dependencies, 9 runs, 90 findings, 57 proposals.
+
+The behaviour worth pointing at in the film is step 3. Nothing instructed the
+model to prioritise weak evidence. It was given ten entities with their
+evidence status and it went to a gap.
 
 ## The deterministic investigation, for comparison
 
@@ -117,8 +154,8 @@ better than cuts; the timings are cues, not hard edits.
 | --- | --- | --- |
 | 0:00 to 0:03 | Northstar investigation loaded, nothing selected. Headline counts visible | "10 entities exposed. 12 dependency paths. One query." |
 | 0:03 to 0:06 | Click **Re-run as a model-planned investigation** | "The same question, handed to a model." |
-| 0:06 to 0:12 | The model-planned block fills in: `list_entities`, then `analyse_impact` with depth 8, each with its own timing | "The model picks the tools. It cannot write, and it cannot approve." |
-| 0:12 to 0:16 | Scroll to the final text and the token count | "Every number read from FalkorDB. 3 requests, 2,609 tokens." |
+| 0:06 to 0:12 | The model-planned block fills in: `list_entities`, `analyse_impact` at depth 8, then `get_evidence` on the unsupported finding | "The model picks the tools. It cannot write, and it cannot approve." |
+| 0:12 to 0:16 | Scroll to the final text naming the three unsupported findings, and the token count | "It went looking for the evidence gap. 4 requests, 3,985 tokens, half a thousandth of a dollar." |
 | 0:16 to 0:20 | Trace the Meridian chain on the canvas, four hops lighting up | "Four relationships from an outage to a customer contract." |
 
 **Do not** show the terminal, `.env.local`, the Vercel dashboard, or any

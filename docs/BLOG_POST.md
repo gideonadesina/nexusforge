@@ -344,8 +344,9 @@ to be present, which would have claimed model reasoning for a procedure that
 does no reasoning at all, the moment a key was added.
 
 The second planner is a GPT-6 Luna model driving the same read-only tools
-through the Responses API. A controlled run costs three model requests and
-about 2,700 tokens.
+through the Responses API. A run against the live deployment costs four model
+requests and about 4,000 tokens, which at published rates is five ten
+thousandths of a dollar.
 
 The most useful thing the model did was fail honestly. Given the tools, it
 chose `list_entities`, then `analyse_impact` with a depth of 8, which is its
@@ -360,6 +361,12 @@ out of the loop state. The gap survived until a model drove the
 investigation, which is a reasonable argument for having both.
 
 The fix was to make the tool name what it found rather than only counting it.
+Re-run afterwards, the model did something I had not scripted: handed ten
+exposed entities with their evidence status, it called `get_evidence` on one
+of the three marked unsupported rather than any of the seven with complete
+evidence, and its answer named all three gaps. Nothing told it to prioritise
+weak evidence. The scripted planner ranks hardest first because I wrote that
+rule; the model arrived at the same instinct from the data.
 
 Paid inference runs behind two switches, not one: a key must be present **and**
 an explicit flag must be on, so a key alone can never start billing. Spending
