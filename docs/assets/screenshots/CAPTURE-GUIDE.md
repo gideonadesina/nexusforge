@@ -19,6 +19,25 @@ Both missing shots take about two minutes each.
 
 ## Still needed
 
+### 07-ask-drives-canvas.jpg
+
+New: asking a question now loads the matching investigation into the central
+canvas, instead of answering into an empty screen.
+
+1. Run the app locally (`npm run dev`) — this is not on the deployed demo yet
+2. Under **Ask NexusForge**, click a suggested question. Do NOT click
+   "Re-run as a model-planned investigation": the deterministic path shows the
+   same integration and costs nothing
+3. Wait for the canvas to finish its hop-by-hop reveal
+
+What must be in frame, together in one shot: the answer text in the left
+sidebar AND the populated canvas beside it. That pairing IS the claim — the
+answer and the graph are the same investigation, not two separate features.
+
+Worth checking before you save: the **Depth** box in the top bar should read
+the same bound the answer's prose states ("depth bound 6"). Those agreeing on
+screen is the detail the article can point at.
+
 ### 02-trace-canvas.jpg
 
 I saw this render correctly; only the save step failed.

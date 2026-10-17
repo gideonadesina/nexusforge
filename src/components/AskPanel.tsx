@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { answeredDepth, type AgentRun } from "./agent-transcript";
 
 /**
  * Ask NexusForge.
@@ -27,23 +28,6 @@ interface AskAnswer {
   focusEntityIds: string[];
   citedSourceIds: string[];
   supported: boolean;
-}
-
-interface AgentStep {
-  index: number;
-  tool: string;
-  rationale: string;
-  summary: string;
-  durationMs: number;
-  ok: boolean;
-}
-
-interface AgentRun {
-  mode: string;
-  plannerLabel: string;
-  steps: AgentStep[];
-  stoppedBecause: string;
-  finalText?: string | null;
 }
 
 interface AskResponse {
@@ -81,7 +65,7 @@ export function AskPanel({
 }: {
   orgId: string;
   onFocusEntities: (ids: string[]) => void;
-  onInvestigate: (rootEntityId: string) => void;
+  onInvestigate: (rootEntityId: string, depth: number) => void;
 }) {
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [modelAvailable, setModelAvailable] = useState(false);
@@ -140,8 +124,12 @@ export function AskPanel({
       if (body.answer?.focusEntityIds?.length) {
         onFocusEntities(body.answer.focusEntityIds);
       }
+      // Drive the central canvas with the same investigation, so the graph
+      // shows what the answer is talking about instead of staying empty. The
+      // depth comes from what was actually computed, never from the model's
+      // prose or from the depth input the user happens to have sitting there.
       if (body.resolved?.rootEntityId) {
-        onInvestigate(body.resolved.rootEntityId);
+        onInvestigate(body.resolved.rootEntityId, answeredDepth(body.agent));
       }
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));

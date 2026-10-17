@@ -85,6 +85,12 @@ export function Investigation() {
    * render under the Education header.
    */
   const requestGen = useRef(0);
+  /**
+   * Signature of the traversal the canvas was last asked to show on Ask's
+   * behalf. Each /api/analysis call persists a run, so repeating a question
+   * must not quietly create a second one.
+   */
+  const lastAutoRun = useRef<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [busyProposal, setBusyProposal] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -131,6 +137,7 @@ export function Investigation() {
     let cancelled = false;
     // Invalidate every in-flight request belonging to the previous org.
     const gen = ++requestGen.current;
+    lastAutoRun.current = null;
     setAnalysis(null);
     setProposals([]);
     setAuditEvents([]);
@@ -170,8 +177,13 @@ export function Investigation() {
     };
   }, [orgId, addLog]);
 
-  const runAnalysis = useCallback(async () => {
-    if (!rootId) return;
+  const runAnalysis = useCallback(
+    async (target?: { rootEntityId?: string; maxDepth?: number }) => {
+    // Ask resolves a root and hands it straight here. Reading it from state
+    // would read the previous value, since setRootId has not committed yet.
+    const runRoot = target?.rootEntityId ?? rootId;
+    const runDepth = target?.maxDepth ?? depth;
+    if (!runRoot) return;
     const gen = requestGen.current;
     const orgAtRequest = orgId;
     setBusy(true);
@@ -183,13 +195,17 @@ export function Investigation() {
       const res = await fetch("/api/analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ org: orgId, rootEntityId: rootId, maxDepth: depth }),
+        body: JSON.stringify({ org: orgId, rootEntityId: runRoot, maxDepth: runDepth }),
       });
       const body = await res.json();
       // Discard a response whose organization is no longer selected, so a
       // slow analysis can never render under a different organization.
       if (gen !== requestGen.current || orgAtRequest !== orgId) return;
       if (!res.ok) {
+        // Release the de-dup guard: a run that the server rejected never
+        // happened, so asking the same question again must retry rather
+        // than be silently swallowed as already drawn.
+        if (target) lastAutoRun.current = null;
         setError(`${body.code}: ${body.error}`);
         addLog("analysis failed", body.error, `HTTP ${res.status}\n${body.code}`);
         return;
@@ -251,12 +267,21 @@ export function Investigation() {
       }
     } catch (err) {
       if (gen === requestGen.current) {
-        setError(err instanceof Error ? err.message : String(err));
+        lastAutoRun.current = null;
+        setError(
+          target
+            ? "Could not draw this investigation on the canvas. The answer in the sidebar is unaffected."
+            : err instanceof Error
+              ? err.message
+              : String(err),
+        );
       }
     } finally {
       if (gen === requestGen.current) setBusy(false);
     }
-  }, [rootId, depth, addLog, orgId]);
+    },
+    [rootId, depth, addLog, orgId],
+  );
 
   const decide = useCallback(
     async (proposalId: string, decision: "APPROVED" | "REJECTED") => {
@@ -335,7 +360,7 @@ export function Investigation() {
         onRootChange={setRootId}
         depth={depth}
         onDepthChange={setDepth}
-        onRun={runAnalysis}
+        onRun={() => void runAnalysis()}
         busy={busy}
         analysis={analysis}
       />
@@ -399,7 +424,33 @@ export function Investigation() {
                 const first = ids[0];
                 if (first) setSelectedId(first);
               }}
-              onInvestigate={(id) => setRootId(id)}
+              /**
+               * Ask investigated something, so the canvas should show it.
+               *
+               * The depth is whatever the answer was actually computed under,
+               * decided by answeredDepth from validated tool arguments rather
+               * than parsed out of any prose. It also replaces the value in
+               * the depth input, so the control cannot keep advertising a
+               * bound that no longer matches what is drawn.
+               */
+              onInvestigate={(id: string, askDepth: number) => {
+                setRootId(id);
+                setDepth(askDepth);
+
+                // One persisted run per investigation. Each /api/analysis
+                // call records a run, so asking the same question twice must
+                // not quietly create a second one.
+                const signature = `${orgId}|${id}|${askDepth}`;
+                if (lastAutoRun.current === signature) return;
+                lastAutoRun.current = signature;
+
+                // Already on screen from an earlier run or a manual one.
+                if (analysis && analysis.root.entityId === id && analysis.maxDepth === askDepth) {
+                  return;
+                }
+
+                void runAnalysis({ rootEntityId: id, maxDepth: askDepth });
+              }}
             />
           </section>
 
