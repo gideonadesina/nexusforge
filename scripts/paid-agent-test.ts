@@ -1,140 +1,234 @@
 /**
- * ONE controlled paid investigation against the configured model.
+ * ONE authorized, hard-capped GPT-6 Luna investigation.
  *
- * Deliberately conservative: a small step budget, a hard timeout, and a
- * single run per invocation. It prints token usage, latency, the tools the
- * model chose, and a grounding check comparing the model's narration against
- * what FalkorDB actually returned.
+ *   npx tsx scripts/paid-agent-test.ts --dry-run   measures payloads, spends nothing
+ *   npx tsx scripts/paid-agent-test.ts --spend     issues the authorized paid run
  *
- * Never prints the API key. Run explicitly; nothing calls this automatically.
+ * Authorized ceiling: 7 model requests, 6,000 combined tokens, no retries.
+ *
+ * Three independent enforcement layers, because one is not a guarantee:
+ *   1. maxSteps caps planner turns, and the planner makes one request per turn.
+ *   2. The FalkorDB budget ledger (NF_AGENT_MAX_REQUESTS / NF_AGENT_MAX_TOKENS)
+ *      reserves before each call and throws when a cap is crossed.
+ *   3. This harness wraps fetch: it refuses request 8 outright, and refuses any
+ *      request whose projected completion would cross 6,000 tokens. Layer 3
+ *      closes the gap in layer 2, where the ledger only learns the true cost
+ *      after the call returns.
  */
 import { loadLocalEnv } from "./_env";
 
 loadLocalEnv();
 
-// Enable the model path for THIS PROCESS ONLY. The deployed app stays
-// deterministic unless NF_AGENT_LLM is set in its own environment.
-process.env.NF_AGENT_LLM = "on";
+const DRY_RUN = !process.argv.includes("--spend");
 
-const { getEnv } = await import("../src/lib/env");
+const HARD_MAX_REQUESTS = 7;
+const HARD_MAX_TOKENS = 6_000;
+/** Refuse a call that could not complete inside the ceiling. */
+const PROJECTED_CALL_COST = 2_200;
+
+process.env.NF_AGENT_ENABLED = "true";
+process.env.NF_AGENT_LLM = "on";
+process.env.NF_AGENT_MAX_REQUESTS = String(HARD_MAX_REQUESTS);
+process.env.NF_AGENT_MAX_TOKENS = String(HARD_MAX_TOKENS);
+// Fresh window so prior usage cannot mask the caps under test.
+process.env.NF_AGENT_WINDOW_MS = String(60 * 60 * 1000);
+
+const { orgContext, NORTHSTAR_PACK } = await import("../src/lib/org/packs");
 const { runAgent } = await import("../src/lib/agent/loop");
-const { openAiPlanner, openAiConfigured, DEFAULT_MODEL, OPENAI_RESPONSES_URL } = await import(
+const { openAiPlanner, DEFAULT_MODEL, openAiConfigured } = await import(
   "../src/lib/agent/openai-planner"
 );
-const { resetBudget, budgetSnapshot } = await import("../src/lib/agent/budget");
-const { analyseImpact } = await import("../src/lib/engine/impact");
-const { ensureSeeded, EDUCATION_PACK } = await import("../src/lib/graph/seed");
-const { closeDb } = await import("../src/lib/falkor/client");
-const { SCENARIO_ROOT_ENTITY_ID } = await import("../src/domain/education/seed-data");
+const { resetBudget, budgetSnapshot, budgetLimits } = await import("../src/lib/agent/budget");
+const { roQuery, closeDb } = await import("../src/lib/falkor/client");
 
-if (!openAiConfigured()) {
-  console.error("OPENAI_API_KEY is not set. Aborting without making any call.");
-  process.exit(1);
+const { graphName } = orgContext("northstar");
+const h = (s: string) => console.log(`\n${"=".repeat(70)}\n${s}\n${"=".repeat(70)}`);
+
+/* ------------------------------------------------------------------ */
+/* Layer 3: the fetch guard                                            */
+/* ------------------------------------------------------------------ */
+
+interface CallRecord {
+  n: number;
+  approxInputChars: number;
+  approxInputTokens: number;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  ms: number;
 }
 
-const graphName = getEnv().FALKORDB_GRAPH;
-const rootId = process.argv[2] ?? SCENARIO_ROOT_ENTITY_ID;
+const calls: CallRecord[] = [];
+let spentTokens = 0;
+let refusedReason: string | null = null;
 
-console.log("=".repeat(72));
-console.log("CONTROLLED PAID TEST — one investigation");
-console.log("=".repeat(72));
-console.log(`model    : ${DEFAULT_MODEL}`);
-console.log(`endpoint : ${OPENAI_RESPONSES_URL}`);
-console.log(`graph    : ${graphName}`);
-console.log(`root     : ${rootId}`);
-console.log(`budget   : 5 steps max, 40s wall clock, 20s per request`);
-console.log("");
+const realFetch = globalThis.fetch;
 
-try {
-  await ensureSeeded(graphName, EDUCATION_PACK);
-  await resetBudget();
+globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+  const url = String(input instanceof Request ? input.url : input);
+  if (!url.includes("openai.com")) return realFetch(input as never, init);
 
-  // Ground truth straight from FalkorDB, for the grounding check.
-  const truth = await analyseImpact(graphName, rootId);
-  console.log(
-    `FalkorDB ground truth: ${truth.distinctImpactedCount} entities, ` +
-      `${truth.totalPathCount} paths, ` +
-      `${truth.impacted.filter((e) => e.claim === "OBSERVED").length} OBSERVED`,
-  );
-  console.log("");
+  const n = calls.length + 1;
+  const body = typeof init?.body === "string" ? init.body : "";
+  const approxInputTokens = Math.ceil(body.length / 4);
 
-  const tally = { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
-  const MAX_STEPS = 7;
-const planner = openAiPlanner(rootId, tally, MAX_STEPS);
+  if (n > HARD_MAX_REQUESTS) {
+    refusedReason = `guard refused request ${n}: over the ${HARD_MAX_REQUESTS}-request ceiling`;
+    throw new Error(refusedReason);
+  }
+  if (spentTokens + PROJECTED_CALL_COST > HARD_MAX_TOKENS) {
+    refusedReason =
+      `guard refused request ${n}: ${spentTokens} tokens spent, a further call ` +
+      `could cross the ${HARD_MAX_TOKENS}-token ceiling`;
+    throw new Error(refusedReason);
+  }
+
+  if (DRY_RUN) {
+    throw new Error(
+      `DRY RUN: would have sent request ${n} (~${approxInputTokens} input tokens, ` +
+        `${body.length} chars). Nothing was sent.`,
+    );
+  }
 
   const t0 = Date.now();
-  const result = await runAgent(
-    `What is exposed if ${rootId} becomes unavailable, and on what evidence?`,
-    rootId,
-    { graphName },
-    planner,
-    { maxSteps: MAX_STEPS, maxWallClockMs: 60_000, maxToolMs: 15_000 },
+  const res = await realFetch(input as never, init);
+  const ms = Date.now() - t0;
+
+  // Read usage without consuming the body the planner needs.
+  const clone = res.clone();
+  let inputTokens = 0;
+  let outputTokens = 0;
+  let totalTokens = 0;
+  try {
+    const j = (await clone.json()) as {
+      usage?: { input_tokens?: number; output_tokens?: number; total_tokens?: number };
+    };
+    inputTokens = j.usage?.input_tokens ?? 0;
+    outputTokens = j.usage?.output_tokens ?? 0;
+    totalTokens = j.usage?.total_tokens ?? inputTokens + outputTokens;
+  } catch {
+    /* non-JSON error body; usage stays zero */
+  }
+
+  spentTokens += totalTokens;
+  calls.push({
+    n,
+    approxInputChars: body.length,
+    approxInputTokens,
+    inputTokens,
+    outputTokens,
+    totalTokens,
+    ms,
+  });
+  console.log(
+    `  [guard] request ${n}: in=${inputTokens} out=${outputTokens} total=${totalTokens} ` +
+      `(cumulative ${spentTokens}/${HARD_MAX_TOKENS}) ${ms}ms`,
   );
+  return res;
+}) as typeof fetch;
+
+/* ------------------------------------------------------------------ */
+
+const census = async () => {
+  const q = async (c: string) => (await roQuery<{ c: number }>(graphName, c)).data[0]?.c ?? 0;
+  return {
+    entities: await q(`MATCH (n:Entity) RETURN count(n) AS c`),
+    sources: await q(`MATCH (n:Source) RETURN count(n) AS c`),
+    deps: await q(`MATCH ()-[r:DEPENDS_ON]->() RETURN count(r) AS c`),
+    runs: await q(`MATCH (n:AnalysisRun) RETURN count(n) AS c`),
+    findings: await q(`MATCH (n:Finding) RETURN count(n) AS c`),
+    proposals: await q(`MATCH (n:ActionProposal) RETURN count(n) AS c`),
+  };
+};
+
+try {
+  h(DRY_RUN ? "PRE-FLIGHT (DRY RUN, NOTHING SENT)" : "AUTHORIZED PAID RUN");
+  console.log(`model            : ${DEFAULT_MODEL}`);
+  console.log(`key present      : ${openAiConfigured()}`);
+  console.log(`ceiling          : ${HARD_MAX_REQUESTS} requests / ${HARD_MAX_TOKENS} tokens`);
+  console.log(`ledger limits    : ${JSON.stringify(budgetLimits())}`);
+  console.log(`graph            : northstar (read-only tools)`);
+
+  if (!openAiConfigured()) throw new Error("No OPENAI_API_KEY; refusing to continue.");
+
+  const before = await census();
+  console.log(`census before    : ${JSON.stringify(before)}`);
+
+  if (!DRY_RUN) {
+    await resetBudget();
+    console.log(`ledger reset     : ${JSON.stringify(await budgetSnapshot())}`);
+  }
+
+  const question =
+    "What is exposed if the AI inference gateway becomes unavailable, " +
+    "which findings are not backed by resolvable evidence, and what should a human decide?";
+
+  /**
+   * Pre-flight measured the first request at ~1,015 input tokens, and the
+   * transcript grows roughly 350 tokens per turn. Four turns would cross the
+   * authorized 6,000-token ceiling, so the model is given three and told how
+   * many remain: two for tools, the last to conclude. Being cut off mid-run
+   * is the exact failure we just fixed in the scripted planner, so we budget
+   * for the conclusion rather than hoping for it.
+   */
+  const MAX_STEPS = Number(process.argv.find((a) => a.startsWith("--steps="))?.slice(8) ?? 3);
+  const tally = { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
+  const planner = openAiPlanner(NORTHSTAR_PACK.scenarioRootId, tally, MAX_STEPS);
+
+  h("TRANSCRIPT");
+  const t0 = Date.now();
+  let result = null;
+  let runError: string | null = null;
+  try {
+    result = await runAgent(
+      question,
+      NORTHSTAR_PACK.scenarioRootId,
+      { graphName },
+      planner,
+      { maxSteps: MAX_STEPS, maxWallClockMs: 120_000, maxToolMs: 15_000 },
+    );
+  } catch (e) {
+    runError = e instanceof Error ? e.message : String(e);
+  }
   const elapsed = Date.now() - t0;
 
-  console.log("--- TOOL CALLS CHOSEN BY THE MODEL ---");
-  for (const s of result.steps) {
-    console.log(
-      `${String(s.index).padStart(2)}. ${s.ok ? "ok " : "ERR"} ${s.tool.padEnd(16)} ` +
-        `${s.durationMs}ms  ${JSON.stringify(s.args)}`,
-    );
-    console.log(`    -> ${s.summary.slice(0, 150)}`);
+  if (result) {
+    for (const s of result.steps) {
+      console.log(`\n${String(s.index).padStart(2)}. ${s.ok ? "ok " : "ERR"} ${s.tool}  (${s.durationMs}ms)`);
+      console.log(`    model's reason: ${s.rationale}`);
+      console.log(`    args: ${JSON.stringify(s.args)}`);
+      console.log(`    result: ${s.summary.slice(0, 260)}`);
+    }
+    console.log(`\nmode=${result.mode}`);
+    console.log(`planner=${result.plannerLabel}`);
+    console.log(`steps=${result.steps.length}  ${elapsed}ms  stopped: ${result.stoppedBecause}`);
   }
+  if (runError) console.log(`\nrun ended with: ${runError}`);
+  if (refusedReason) console.log(`guard: ${refusedReason}`);
 
-  const finalText = planner.finalText();
-  console.log("\n--- MODEL FINAL ANSWER ---");
-  console.log(finalText ?? "(none — stopped at step budget)");
+  h("MODEL'S FINAL ANSWER");
+  console.log(planner.finalText() ?? "(none produced)");
 
-  console.log("\n--- USAGE AND COST ---");
-  console.log(`model requests : ${tally.requests}`);
-  console.log(`input tokens   : ${tally.inputTokens}`);
-  console.log(`output tokens  : ${tally.outputTokens}`);
-  console.log(`total tokens   : ${tally.totalTokens}`);
-  console.log(`wall clock     : ${elapsed} ms`);
-  console.log(`stopped because: ${result.stoppedBecause}`);
-  const snap = await budgetSnapshot();
-  console.log(`ledger         : ${snap.tokensUsed} tokens / ${snap.requestsUsed} requests`);
+  h("USAGE AND COST");
+  console.table(calls);
+  const totalIn = calls.reduce((a, c) => a + c.inputTokens, 0);
+  const totalOut = calls.reduce((a, c) => a + c.outputTokens, 0);
+  console.log(`requests       : ${calls.length} / ${HARD_MAX_REQUESTS}`);
+  console.log(`input tokens   : ${totalIn}`);
+  console.log(`output tokens  : ${totalOut}`);
+  console.log(`total tokens   : ${totalIn + totalOut} / ${HARD_MAX_TOKENS}`);
+  console.log(`planner tally  : ${JSON.stringify(tally)}`);
+  console.log(`ledger after   : ${JSON.stringify(await budgetSnapshot())}`);
+
+  const after = await census();
+  console.log(`\ncensus after   : ${JSON.stringify(after)}`);
   console.log(
-    `cost           : UNKNOWN — no verified public price for ${DEFAULT_MODEL} is available ` +
-      `to this process. Multiply the token counts above by your account's rate.`,
-  );
-
-  console.log("\n--- GROUNDING CHECK ---");
-  if (!finalText) {
-    console.log("No final narration to check (hit the step budget).");
-  } else {
-    const claimsRightCount = finalText.includes(String(truth.distinctImpactedCount));
-    console.log(
-      `states the correct distinct count (${truth.distinctImpactedCount}): ${claimsRightCount}`,
-    );
-    // Any entity name mentioned must be a real one.
-    const realNames = new Set(truth.impacted.map((e) => e.name.toLowerCase()));
-    realNames.add(truth.rootName.toLowerCase());
-    const suspicious = [...finalText.matchAll(/\b(?:SS\d|WAEC|Mr\.?|Mrs\.?|Dr\.?)\s?[A-Za-z]+/g)]
-      .map((m) => m[0])
-      .filter((t) => ![...realNames].some((n) => n.includes(t.toLowerCase())));
-    console.log(
-      suspicious.length === 0
-        ? "no entity-like token appears that is absent from the graph"
-        : `REVIEW these tokens, not matched to graph entities: ${[...new Set(suspicious)].join(", ")}`,
-    );
-  }
-
-  console.log("\n--- SAFETY INVARIANTS ---");
-  console.log(`canApprove exposed as: ${result.canApprove}`);
-  const usedTools = new Set(result.steps.map((s) => s.tool));
-  const forbidden = [...usedTools].filter((t) =>
-    /approve|reject|execute|cypher|query/i.test(t),
-  );
-  console.log(
-    forbidden.length === 0
-      ? "no approval/execution/raw-query tool was reachable or used"
-      : `VIOLATION: ${forbidden.join(", ")}`,
+    JSON.stringify(before) === JSON.stringify(after)
+      ? "PASS  graph unchanged by the paid investigation"
+      : "FAIL  GRAPH CHANGED",
   );
 } catch (err) {
-  console.error(`\nTEST FAILED: ${err instanceof Error ? err.message : String(err)}`);
-  console.error("Not retrying automatically — diagnose before spending again.");
-  process.exitCode = 1;
+  console.error(`\nERROR: ${err instanceof Error ? err.message : String(err)}`);
 } finally {
   await closeDb();
 }

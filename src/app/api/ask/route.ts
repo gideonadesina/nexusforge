@@ -5,6 +5,7 @@ import { publicView, listPublicOrganizations } from "@/lib/org/registry";
 import { readGraphFacts, verifiedSuggestions, resolveQuestion } from "@/lib/agent/questions";
 import { composeAnswer } from "@/lib/agent/answer";
 import { runAgent, agentEnabled, AgentDisabledError } from "@/lib/agent/loop";
+import { callerKey, consumeVisitorQuota, RateLimitedError, visitorLimits } from "@/lib/agent/rate-limit";
 import { openAiPlanner, openAiConfigured, type UsageTally } from "@/lib/agent/openai-planner";
 import { BudgetExceededError, budgetSnapshot } from "@/lib/agent/budget";
 import { errorResponse, readJson } from "../_lib/http";
@@ -104,8 +105,15 @@ export async function POST(req: Request) {
     const tally: UsageTally = { requests: 0, inputTokens: 0, outputTokens: 0, totalTokens: 0 };
     let agentResult = null;
     let agentError: string | null = null;
+    let rateLimited = false;
 
     try {
+      // Per-visitor cap, checked before any paid call. The global budget caps
+      // total spend; this stops one caller consuming all of it. The grounded
+      // answer above is already computed, so a limited caller still gets a
+      // real answer rather than an error page.
+      await consumeVisitorQuota(callerKey(req));
+
       const MAX_AGENT_STEPS = 7;
       const planner = openAiPlanner(
         resolved.rootEntityId ?? defaultRoot ?? "",
@@ -121,7 +129,10 @@ export async function POST(req: Request) {
       );
       (agentResult as unknown as { finalText?: string | null }).finalText = planner.finalText();
     } catch (err) {
-      if (err instanceof BudgetExceededError) agentError = err.message;
+      if (err instanceof RateLimitedError) {
+        rateLimited = true;
+        agentError = err.message;
+      } else if (err instanceof BudgetExceededError) agentError = err.message;
       else if (err instanceof AgentDisabledError) agentError = err.message;
       else agentError = err instanceof Error ? err.message : String(err);
     }
@@ -133,6 +144,8 @@ export async function POST(req: Request) {
       answer: grounded,
       agent: agentResult,
       agentError,
+      rateLimited,
+      visitorLimit: visitorLimits().maxRequests,
       usage: tally,
       mode: agentResult ? "model-planned" : "deterministic-fallback",
       modelAvailable: true,

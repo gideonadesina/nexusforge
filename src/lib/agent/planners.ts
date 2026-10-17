@@ -18,10 +18,21 @@ import type { Planner, PlannedCall, LoopState } from "./loop";
  * It is deterministic (the same graph produces the same transcript), which
  * makes it demonstrable and testable, but it is not reasoning.
  */
-export function scriptedPlanner(rootEntityId: string): Planner {
+export function scriptedPlanner(
+  rootEntityId: string,
+  /**
+   * Must match the loop's budget. The planner stops interrogating one step
+   * early so the investigation ends with a conclusion rather than running out
+   * of road, which is what it used to do.
+   */
+  maxSteps = 8,
+): Planner & { finalText: () => string | null } {
+  let summary: string | null = null;
+
   return {
     mode: "scripted",
     label: "Scripted procedure (deterministic, not a language model)",
+    finalText: () => summary,
 
     async next(state: LoopState): Promise<PlannedCall | null> {
       const done = new Set(state.steps.map((s) => s.tool));
@@ -47,7 +58,16 @@ export function scriptedPlanner(rootEntityId: string): Planner {
         };
       }
 
-      if (!lastAnalysis) return null;
+      if (!lastAnalysis) {
+        summary = composeScriptedSummary(state, null);
+        return null;
+      }
+
+      // Leave room to conclude.
+      if (state.steps.length >= maxSteps - 1) {
+        summary = composeScriptedSummary(state, findAnalysis(state));
+        return null;
+      }
 
       // 3. Interrogate findings, hardest cases first: anything unsupported,
       //    then multi-route entities, then the most distant.
@@ -83,9 +103,101 @@ export function scriptedPlanner(rootEntityId: string): Planner {
         }
       }
 
+      summary = composeScriptedSummary(state, analysis);
       return null;
     },
   };
+}
+
+/**
+ * Compose the closing answer from what the tools actually returned.
+ *
+ * Every number and name here is read out of a recorded tool result. Nothing
+ * is restated from the question, and nothing is inferred beyond the counts
+ * the traversal produced. If an analysis never ran, that is said plainly
+ * instead of producing a confident-sounding empty answer.
+ */
+function composeScriptedSummary(
+  state: LoopState,
+  analysis: MinimalAnalysis | null,
+): string {
+  if (!analysis) {
+    return (
+      "No dependency analysis completed, so there is nothing to report. " +
+      "This is a gap in the investigation, not a finding that the change is safe."
+    );
+  }
+
+  const direct = analysis.impacted.filter((e) => e.shortestPath.edgeHops === 1);
+  const indirect = analysis.impacted.filter((e) => e.shortestPath.edgeHops > 1);
+  const unsupported = analysis.impacted.filter((e) => !e.supported);
+  const observed = analysis.impacted.filter((e) => e.claim === "OBSERVED");
+
+  // The most distant exposure is the one a one-hop check would miss.
+  const furthest = [...analysis.impacted].sort(
+    (a, b) => b.shortestPath.edgeHops - a.shortestPath.edgeHops,
+  )[0];
+
+  const examined = [
+    ...new Set(
+      state.steps
+        .filter((s) => s.ok && (s.tool === "explain_path" || s.tool === "get_evidence"))
+        .map((s) => String(s.args.entityId ?? ""))
+        .filter(Boolean),
+    ),
+  ];
+
+  const unresolved = [
+    ...new Set(analysis.impacted.flatMap((e) => e.unresolvedSourceIds ?? [])),
+  ];
+
+  const parts: string[] = [];
+
+  parts.push(
+    `A change to ${analysis.rootName} exposes ${analysis.distinctImpactedCount} distinct ` +
+      `entities across ${analysis.totalPathCount} dependency paths, within a depth bound of ` +
+      `${analysis.maxDepth}. ${direct.length} depend on it directly; ${indirect.length} are ` +
+      `reached only through intermediaries.`,
+  );
+
+  if (furthest && furthest.shortestPath.edgeHops > 1) {
+    parts.push(
+      `The most distant exposure is ${furthest.name} at ${furthest.shortestPath.edgeHops} ` +
+        `relationships. A direct dependency check would not have found it.`,
+    );
+  }
+
+  parts.push(
+    `${observed.length} findings are OBSERVED, meaning a single relationship backed by ` +
+      `evidence that resolves. The remaining ${analysis.impacted.length - observed.length} are ` +
+      `DERIVED: computed by chaining relationships, so no single record states them.`,
+  );
+
+  if (unsupported.length > 0) {
+    parts.push(
+      `${unsupported.length} findings are NOT supported by resolvable evidence: ` +
+        `${unsupported.map((e) => `${e.name} (${e.evidenceStatus})`).join("; ")}. ` +
+        `These must not be acted on until the gap is closed.`,
+    );
+  } else {
+    parts.push("Every cited source resolves, so no finding is unsupported.");
+  }
+
+  if (unresolved.length > 0) {
+    parts.push(`Unresolved references: ${unresolved.join(", ")}.`);
+  }
+
+  if (examined.length > 0) {
+    parts.push(`Paths and evidence were inspected directly for: ${examined.join(", ")}.`);
+  }
+
+  parts.push(
+    "Limitations: a dependency path proves exposure to the change, not operational " +
+      "failure. No severity was assigned, no replacement owner was inferred, and nothing " +
+      "here has been executed. Any action requires a human decision.",
+  );
+
+  return parts.join(" ");
 }
 
 interface RankedTarget {
@@ -94,12 +206,19 @@ interface RankedTarget {
 }
 
 interface MinimalAnalysis {
+  rootName: string;
+  distinctImpactedCount: number;
+  totalPathCount: number;
+  maxDepth: number;
   impacted: Array<{
     entityId: string;
+    name: string;
+    claim: string;
     supported: boolean;
     evidenceStatus: string;
+    unresolvedSourceIds: string[];
     allPaths: unknown[];
-    shortestPath: { edgeHops: number };
+    shortestPath: { edgeHops: number; entityHops: number };
   }>;
 }
 
@@ -148,7 +267,17 @@ export class LlmNotConfiguredError extends Error {
   }
 }
 
-/** True when a model planner could run. No provider is wired in this project. */
+/**
+ * True when a model planner could actually run right now.
+ *
+ * This previously returned a hardcoded false, left over from before the
+ * OpenAI planner existed, so the capability probe understated what was
+ * available. It now reflects the two real gates: a key must be present AND
+ * NF_AGENT_LLM must be switched on. A key alone is deliberately not enough.
+ */
 export function llmConfigured(): boolean {
-  return false;
+  const hasKey =
+    typeof process.env.OPENAI_API_KEY === "string" && process.env.OPENAI_API_KEY.length > 0;
+  const enabled = (process.env.NF_AGENT_LLM ?? "off").toLowerCase() === "on";
+  return hasKey && enabled;
 }

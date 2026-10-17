@@ -58,14 +58,19 @@ export async function POST(req: Request) {
       parsed.data.goal ??
       `Determine what is exposed by a change to ${parsed.data.rootEntityId}, and on what evidence.`;
 
-    const result = await runAgent(
-      goal,
-      parsed.data.rootEntityId,
-      { graphName },
-      scriptedPlanner(parsed.data.rootEntityId),
-    );
+    const MAX_STEPS = 8;
+    const planner = scriptedPlanner(parsed.data.rootEntityId, MAX_STEPS);
+    const result = await runAgent(goal, parsed.data.rootEntityId, { graphName }, planner, {
+      maxSteps: MAX_STEPS,
+      maxWallClockMs: 55_000,
+      maxToolMs: 15_000,
+    });
 
-    return NextResponse.json(result);
+    return NextResponse.json({
+      ...result,
+      // The grounded conclusion, composed from recorded tool results.
+      finalText: planner.finalText(),
+    });
   } catch (err) {
     if (err instanceof AgentDisabledError) {
       return NextResponse.json({ error: err.message, code: "AGENT_DISABLED" }, { status: 503 });
