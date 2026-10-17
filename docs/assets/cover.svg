@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1600 840" width="1600" height="840" role="img" aria-label="NexusForge: the contract nobody knew was at risk">
+<style>
+.t{font:700 66px ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;fill:#ebe9e6}
+.t2{font:700 66px ui-sans-serif,system-ui,sans-serif;fill:#4db6ac}
+.s{font:400 25px ui-sans-serif,system-ui,sans-serif;fill:#a8a29b}
+.m{font:400 17px ui-monospace,Menlo,monospace;fill:#76706a}
+.mk{font:400 17px ui-monospace,Menlo,monospace;fill:#4db6ac}
+.brand{font:600 20px ui-sans-serif,system-ui,sans-serif;fill:#ebe9e6;letter-spacing:.14em}
+.brandsub{font:400 14px ui-sans-serif,system-ui,sans-serif;fill:#76706a}
+.node{fill:#242322;stroke:#332f2c}
+.nodeA{fill:#242322;stroke:#4db6ac;stroke-width:2}
+.lab{font:400 13px ui-monospace,Menlo,monospace;fill:#a8a29b}
+</style>
+<rect width="1600" height="840" fill="#141413"/>
+<line x1="980" y1="0" x2="980" y2="840" stroke="#332f2c" stroke-width="1" opacity="0.5"/>
+<line x1="1100" y1="0" x2="1100" y2="840" stroke="#332f2c" stroke-width="1" opacity="0.5"/>
+<line x1="1220" y1="0" x2="1220" y2="840" stroke="#332f2c" stroke-width="1" opacity="0.5"/>
+<line x1="1340" y1="0" x2="1340" y2="840" stroke="#332f2c" stroke-width="1" opacity="0.5"/>
+<line x1="1460" y1="0" x2="1460" y2="840" stroke="#332f2c" stroke-width="1" opacity="0.5"/>
+<text class="brand" x="90" y="120">NEXUSFORGE</text>
+<text class="brandsub" x="90" y="148">evidence-backed organizational intelligence, on FalkorDB</text>
+<text class="t" x="90" y="330">The contract nobody</text>
+<text class="t" x="90" y="402">knew was <tspan class="t2">at risk</tspan></text>
+<text class="s" x="90" y="462">An AI gateway fails. Four relationships away,</text>
+<text class="s" x="90" y="498">a customer obligation is exposed.</text>
+<rect class="nodeA" x="1010" y="190" width="480" height="74" rx="2"/>
+<text class="mk" x="1032" y="234">AI Inference Gateway</text>
+<text class="lab" x="1472" y="216" text-anchor="end">the change</text>
+<line x1="1044" y1="298" x2="1044" y2="270" stroke="#423d39" stroke-width="2"/>
+<path d="M1039 276 L1044 268 L1049 276 z" fill="#423d39"/>
+<rect class="node" x="1010" y="298" width="480" height="74" rx="2"/>
+<text class="m" x="1032" y="342">inference.events</text>
+<text class="lab" x="1472" y="324" text-anchor="end">hop 1</text>
+<line x1="1044" y1="406" x2="1044" y2="378" stroke="#423d39" stroke-width="2"/>
+<path d="M1039 384 L1044 376 L1049 384 z" fill="#423d39"/>
+<rect class="node" x="1010" y="406" width="480" height="74" rx="2"/>
+<text class="m" x="1032" y="450">Audit Event Processor</text>
+<text class="lab" x="1472" y="432" text-anchor="end">hop 2</text>
+<line x1="1044" y1="514" x2="1044" y2="486" stroke="#423d39" stroke-width="2"/>
+<path d="M1039 492 L1044 484 L1049 492 z" fill="#423d39"/>
+<rect class="node" x="1010" y="514" width="480" height="74" rx="2"/>
+<text class="m" x="1032" y="558">Compliance evidence</text>
+<text class="lab" x="1472" y="540" text-anchor="end">hop 3</text>
+<line x1="1044" y1="622" x2="1044" y2="594" stroke="#423d39" stroke-width="2"/>
+<path d="M1039 600 L1044 592 L1049 600 z" fill="#423d39"/>
+<rect class="node" x="1010" y="622" width="480" height="74" rx="2"/>
+<text class="m" x="1032" y="666">Meridian MSA 8.2</text>
+<text class="lab" x="1472" y="648" text-anchor="end">hop 4</text>
+<text class="m" x="90" y="770">10 entities  ·  12 dependency paths  ·  ~40 ms</text>
+<text class="lab" x="90" y="798">Graph Hacks 2026</text>
+</svg>

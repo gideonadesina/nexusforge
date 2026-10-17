@@ -1,0 +1,65 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 860 794" width="860" height="794" role="img" aria-labelledby="t d">
+<title id="t">The Meridian dependency chain, four relationships from the AI Inference Gateway</title>
+<desc id="d">AI Inference Gateway, then inference.events topic, then Audit Event Processor, then quarterly customer compliance evidence, then the Meridian Health MSA clause 8.2. Arrows point from each dependent entity toward the thing it depends on.</desc>
+<style>.bg{fill:#141413}.card{fill:#242322;stroke:#332f2c;stroke-width:1}.card-root{fill:#242322;stroke:#4db6ac;stroke-width:2}.ty{font:600 11px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#a8a29b;letter-spacing:.02em}.ty-root{fill:#4db6ac}.nm{font:500 15px ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;fill:#ebe9e6}.id{font:400 11px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#76706a}.hop{font:400 10px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#76706a;letter-spacing:.08em}.rel{font:400 11px ui-monospace,SFMono-Regular,Menlo,monospace;fill:#4db6ac}.kind{font:400 10px ui-sans-serif,system-ui,sans-serif;fill:#76706a}.edge{stroke:#423d39;stroke-width:1.5;fill:none}.hd{font:600 13px ui-sans-serif,system-ui,sans-serif;fill:#ebe9e6}.sub{font:400 11px ui-sans-serif,system-ui,sans-serif;fill:#76706a}</style>
+<rect class="bg" width="860" height="794"/>
+<text class="hd" x="34" y="30">What a four hop traversal found</text>
+<text class="sub" x="34" y="50">Arrows point from the dependent entity to the thing it depends on. Impact propagates the other way, downward.</text>
+<defs><marker id="ar" viewBox="0 0 8 8" refX="7" refY="4" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0 L8 4 L0 8 z" fill="#423d39"/></marker></defs>
+<g class="">
+<line class="edge" x1="76" y1="220" x2="76" y2="170" marker-end="url(#ar)"/>
+<text class="rel" x="92" y="189.0">nsdep_topic_on_gateway</text>
+<text class="kind" x="92" y="204.0">produced_by</text>
+</g>
+<g class="">
+<line class="edge" x1="76" y1="364" x2="76" y2="314" marker-end="url(#ar)"/>
+<text class="rel" x="92" y="333.0">nsdep_auditproc_on_topic</text>
+<text class="kind" x="92" y="348.0">consumes</text>
+</g>
+<g class="">
+<line class="edge" x1="76" y1="508" x2="76" y2="458" marker-end="url(#ar)"/>
+<text class="rel" x="92" y="477.0">nsdep_obligation_on_auditproc</text>
+<text class="kind" x="92" y="492.0">requires_continuous_processing</text>
+</g>
+<g class="">
+<line class="edge" x1="76" y1="652" x2="76" y2="602" marker-end="url(#ar)"/>
+<text class="rel" x="92" y="621.0">nsdep_meridian_on_obligation</text>
+<text class="kind" x="92" y="636.0">contractually_requires</text>
+</g>
+<g class="">
+<rect class="card-root" x="34" y="76" width="430" height="86" rx="2"/>
+<text class="ty ty-root" x="50" y="100">Service</text>
+<text class="nm" x="50" y="124">AI Inference Gateway</text>
+<text class="id" x="50" y="146">ns_svc_inference_gateway</text>
+<text class="hop" x="450" y="100" text-anchor="end">the change</text>
+</g>
+<g class="">
+<rect class="card" x="34" y="220" width="430" height="86" rx="2"/>
+<text class="ty " x="50" y="244">EventTopic</text>
+<text class="nm" x="50" y="268">inference.events (topic)</text>
+<text class="id" x="50" y="290">ns_topic_inference_events</text>
+<text class="hop" x="450" y="244" text-anchor="end">hop 1</text>
+</g>
+<g class="">
+<rect class="card" x="34" y="364" width="430" height="86" rx="2"/>
+<text class="ty " x="50" y="388">Service</text>
+<text class="nm" x="50" y="412">Audit Event Processor</text>
+<text class="id" x="50" y="434">ns_svc_audit_processor</text>
+<text class="hop" x="450" y="388" text-anchor="end">hop 2</text>
+</g>
+<g class="">
+<rect class="card" x="34" y="508" width="430" height="86" rx="2"/>
+<text class="ty " x="50" y="532">Obligation</text>
+<text class="nm" x="50" y="556">Quarterly customer compliance evidence</text>
+<text class="id" x="50" y="578">ns_obligation_soc2_evidence</text>
+<text class="hop" x="450" y="532" text-anchor="end">hop 3</text>
+</g>
+<g class="">
+<rect class="card" x="34" y="652" width="430" height="86" rx="2"/>
+<text class="ty " x="50" y="676">CustomerCommitment</text>
+<text class="nm" x="50" y="700">Meridian Health MSA, clause 8.2</text>
+<text class="id" x="50" y="722">ns_commitment_meridian</text>
+<text class="hop" x="450" y="676" text-anchor="end">hop 4</text>
+</g>
+<text class="sub" x="34" y="776">No direct edge exists between the contract and the gateway. Verified against FalkorDB: 10 entities, 12 paths.</text>
+</svg>

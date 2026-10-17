@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 470" width="1000" height="470" role="img" aria-label="Direct lookup returns two services. Graph traversal returns ten entities including the contract.">
+<style>
+.bg{fill:#141413}
+.h{font:600 15px ui-sans-serif,system-ui,sans-serif;fill:#ebe9e6}
+.q{font:400 12px ui-monospace,Menlo,monospace;fill:#a8a29b}
+.r{font:400 13px ui-sans-serif,system-ui,sans-serif;fill:#a8a29b}
+.big{font:700 40px ui-sans-serif,system-ui,sans-serif;fill:#ebe9e6}
+.bigA{font:700 40px ui-sans-serif,system-ui,sans-serif;fill:#4db6ac}
+.miss{font:400 13px ui-sans-serif,system-ui,sans-serif;fill:#d9a441}
+.hit{font:400 13px ui-sans-serif,system-ui,sans-serif;fill:#4db6ac}
+.panel{fill:#1c1b1a;stroke:#332f2c}
+.code{fill:#141413;stroke:#332f2c}
+</style>
+<rect class="bg" width="1000" height="470"/>
+<rect class="panel" x="30" y="24" width="450" height="414" rx="2"/>
+<text class="h" x="54" y="58">Direct lookup</text>
+<rect class="code" x="54" y="76" width="402" height="66" rx="2"/>
+<text class="q" x="68" y="100">SELECT target FROM deps</text>
+<text class="q" x="68" y="120">WHERE source = 'gateway'</text>
+<text class="big" x="54" y="196">2</text>
+<text class="r" x="88" y="196">services returned</text>
+<text class="hit" x="54" y="232">+ copilot-api</text>
+<text class="hit" x="54" y="258">+ batch-scoring</text>
+<text class="miss" x="54" y="284">missing: the audit chain</text>
+<text class="miss" x="54" y="310">missing: the contract</text>
+<rect class="panel" x="520" y="24" width="450" height="414" rx="2"/>
+<text class="h" x="544" y="58">Graph traversal</text>
+<rect class="code" x="544" y="76" width="402" height="86" rx="2"/>
+<text class="q" x="558" y="100">MATCH p = (a:Entity)</text>
+<text class="q" x="558" y="120">  -[:DEPENDS_ON*1..6]-&gt;</text>
+<text class="q" x="558" y="140">  (root {id: $rootId})</text>
+<text class="bigA" x="544" y="216">10</text>
+<text class="r" x="606" y="216">entities across 12 paths</text>
+<text class="hit" x="544" y="252">+ copilot-api</text>
+<text class="hit" x="544" y="278">+ batch-scoring</text>
+<text class="hit" x="544" y="304">+ the audit chain</text>
+<text class="hit" x="544" y="330">+ Meridian MSA, hop 4</text>
+</svg>
