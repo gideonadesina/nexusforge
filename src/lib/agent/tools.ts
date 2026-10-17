@@ -106,13 +106,27 @@ const analyseImpactTool: AgentTool = {
     });
     const observed = analysis.impacted.filter((e) => e.claim === "OBSERVED").length;
     const unsupported = analysis.impacted.filter((e) => !e.supported).length;
+    // The summary is the only part a model planner sees, so it has to carry
+    // the entity ids. Reporting counts alone left the model unable to call
+    // explain_path or get_evidence, because it had no id to pass: in a paid
+    // run it correctly refused to invent one and stopped two tools in. A
+    // scripted planner never hit this, since it reads the structured result.
+    const roster = analysis.impacted
+      .map(
+        (e) =>
+          `${e.entityId} (${e.shortestPath.edgeHops} hop${e.shortestPath.edgeHops === 1 ? "" : "s"}, ` +
+          `${e.claim}, evidence ${e.evidenceStatus}${e.supported ? "" : ", UNSUPPORTED"})`,
+      )
+      .join("; ");
+
     return {
       ok: true,
       summary:
         `${analysis.distinctImpactedCount} distinct exposed entities via ` +
         `${analysis.totalPathCount} paths (depth <= ${analysis.maxDepth}). ` +
         `${observed} OBSERVED, ${analysis.impacted.length - observed} DERIVED. ` +
-        `${unsupported} with unresolved evidence.`,
+        `${unsupported} with unresolved evidence. ` +
+        `Exposed entities: ${roster}.`,
       data: analysis,
     };
   },
