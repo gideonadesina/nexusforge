@@ -20,6 +20,11 @@ import { getEnv } from "../env";
  */
 
 export interface VisitorLimits {
+  /**
+   * Model-backed investigations per window, not raw model requests. One
+   * investigation issues several model requests internally; the global token
+   * ledger is what caps those.
+   */
   maxRequests: number;
   windowMs: number;
 }
@@ -35,7 +40,7 @@ export class RateLimitedError extends Error {
   readonly retryAfterSeconds: number;
   constructor(used: number, limit: number, retryAfterSeconds: number) {
     super(
-      `Rate limit reached: ${used}/${limit} model-backed requests in the current window. ` +
+      `Rate limit reached: ${used}/${limit} model-backed investigations in the current window. ` +
         `The deterministic investigation is unaffected and still available.`,
     );
     this.name = "RateLimitedError";
