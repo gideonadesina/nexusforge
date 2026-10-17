@@ -26,13 +26,21 @@ const BodySchema = z.object({
 
 export async function GET() {
   // Capability probe, so the UI can describe the agent honestly.
+  //
+  // This route's own mode is ALWAYS "scripted": its POST handler constructs
+  // scriptedPlanner and nothing else. It previously reported "llm" whenever a
+  // key happened to be configured, which would have claimed model reasoning
+  // for a deterministic procedure as soon as the pilot switched the model on.
+  // Whether a model is available is a separate fact about a different route.
   return NextResponse.json({
     enabled: agentEnabled(),
-    llmConfigured: llmConfigured(),
-    mode: llmConfigured() ? "llm" : "scripted",
-    note: llmConfigured()
-      ? "A language model planner is configured."
-      : "No language model is configured. The scripted planner is deterministic and is not a model.",
+    mode: "scripted",
+    note:
+      "This route always runs the deterministic scripted planner. It is not a " +
+      "language model and does not call one. Model-backed investigation is a " +
+      "separate route.",
+    modelBackedRoute: "/api/ask",
+    modelAvailableOnAskRoute: llmConfigured(),
     tools: toolCatalogue(),
     globalCallsUsed: globalCallsUsed(),
   });

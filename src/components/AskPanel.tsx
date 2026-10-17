@@ -29,13 +29,49 @@ interface AskAnswer {
   supported: boolean;
 }
 
+interface AgentStep {
+  index: number;
+  tool: string;
+  rationale: string;
+  summary: string;
+  durationMs: number;
+  ok: boolean;
+}
+
+interface AgentRun {
+  mode: string;
+  plannerLabel: string;
+  steps: AgentStep[];
+  stoppedBecause: string;
+  finalText?: string | null;
+}
+
 interface AskResponse {
   question: string;
   resolved: { intent: string; rootEntityId: string | null; targetEntityId: string | null };
   answer: AskAnswer;
+  agent?: AgentRun | null;
+  agentError?: string | null;
+  rateLimited?: boolean;
+  visitorLimit?: number;
+  usage?: { requests: number; totalTokens: number };
   mode: string;
   modelAvailable: boolean;
   latencyMs: number;
+}
+
+/** Say exactly which engine produced the answer. */
+function provenance(mode: string): string {
+  switch (mode) {
+    case "deterministic":
+      return "Computed directly from the graph. No language model was used.";
+    case "deterministic-fallback":
+      return "Computed directly from the graph. The model planner did not run.";
+    case "model-planned":
+      return "A model chose which graph tools to call. Every fact was read from FalkorDB.";
+    default:
+      return "Computed from the graph.";
+  }
 }
 
 export function AskPanel({
@@ -74,7 +110,15 @@ export function AskPanel({
     };
   }, [orgId]);
 
-  const ask = async (question: string) => {
+  /**
+   * Ask a question.
+   *
+   * `useModel` is an explicit, per-question opt in. The model planner costs
+   * money and is rate limited, so it is never the silent default: the
+   * deterministic answer is always computed first and is what you get unless
+   * you deliberately choose otherwise.
+   */
+  const ask = async (question: string, useModel = false) => {
     setBusy(true);
     setError(null);
     setResult(null);
@@ -82,7 +126,7 @@ export function AskPanel({
       const res = await fetch("/api/ask", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ org: orgId, question }),
+        body: JSON.stringify({ org: orgId, question, useModel }),
       });
       const body = await res.json();
       if (!res.ok) {
@@ -180,23 +224,76 @@ export function AskPanel({
           </p>
 
           <p className="mt-1.5 text-[0.625rem] text-[var(--color-ink-faint)]">
-            {result.mode === "deterministic"
-              ? "Computed directly from the graph. No language model was used."
-              : `Model-planned tool calls; all facts still read from FalkorDB.`}
+            {provenance(result.mode)}
             {result.answer.citedSourceIds.length > 0 && (
               <> · {result.answer.citedSourceIds.length} source(s) cited</>
             )}
           </p>
 
+          {/* The model's own investigation, shown as a separate, clearly
+              labelled block so it can never be mistaken for the
+              deterministic answer above. */}
+          {result.agent && (
+            <div className="mt-2.5 border border-[var(--color-line)] bg-[var(--color-surface-2)] p-2">
+              <p className="nf-graph-value text-[0.625rem] uppercase text-[var(--color-accent)]">
+                Model-planned investigation
+              </p>
+              <p className="mt-0.5 text-[0.625rem] text-[var(--color-ink-faint)]">
+                {result.agent.plannerLabel}
+              </p>
+              <ol className="mt-1.5 space-y-1">
+                {result.agent.steps.map((s) => (
+                  <li key={s.index} className="text-[0.625rem] leading-snug">
+                    <span className="nf-graph-value text-[var(--color-ink-muted)]">
+                      {s.index + 1}. {s.tool}
+                    </span>
+                    <span className="nf-num ml-1 text-[var(--color-ink-faint)]">
+                      {s.durationMs} ms
+                    </span>
+                    <span className="block text-[var(--color-ink-faint)]">{s.summary}</span>
+                  </li>
+                ))}
+              </ol>
+              {result.agent.finalText && (
+                <p className="mt-1.5 border-t border-[var(--color-line)] pt-1.5 text-xs leading-relaxed text-[var(--color-ink)]">
+                  {result.agent.finalText}
+                </p>
+              )}
+              {result.usage && (
+                <p className="nf-num mt-1 text-[0.625rem] text-[var(--color-ink-faint)]">
+                  {result.usage.requests} model request(s), {result.usage.totalTokens} tokens
+                </p>
+              )}
+            </div>
+          )}
+
+          {result.agentError && (
+            <p className="mt-2 text-[0.625rem] leading-relaxed text-[var(--color-sev-warn)]">
+              {result.rateLimited
+                ? `Model limit reached (${result.visitorLimit} per hour). The answer above is the deterministic one, computed from the graph.`
+                : `Model planner unavailable. The answer above is the deterministic one, computed from the graph.`}
+            </p>
+          )}
+
+          {/* Offer the paid path only after a free answer already exists. */}
+          {modelAvailable && !result.agent && !result.agentError && (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={() => ask(result.question, true)}
+              className="nf-anim mt-2 min-h-9 border border-[var(--color-line-strong)] px-2.5 py-1 text-[0.625rem] text-[var(--color-ink-muted)] hover:border-[var(--color-accent-dim)] hover:text-[var(--color-ink)] disabled:opacity-40"
+            >
+              Re-run as a model-planned investigation
+            </button>
+          )}
         </div>
       )}
 
-      {!modelAvailable && (
-        <p className="mt-3 text-[0.625rem] leading-relaxed text-[var(--color-ink-faint)]">
-          Answers are computed deterministically from the graph. The optional
-          model planner is disabled in this deployment.
-        </p>
-      )}
+      <p className="mt-3 text-[0.625rem] leading-relaxed text-[var(--color-ink-faint)]">
+        {modelAvailable
+          ? "Answers are computed deterministically from the graph. A model-planned investigation is available on request, rate limited, and reads the same graph through the same read-only tools."
+          : "Answers are computed deterministically from the graph. The optional model planner is disabled in this deployment."}
+      </p>
     </div>
   );
 }
