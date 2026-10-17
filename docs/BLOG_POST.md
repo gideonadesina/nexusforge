@@ -336,15 +336,40 @@ not held in process memory. On serverless infrastructure a process local
 counter means every cold start gets a fresh budget, which is to say no budget
 at all.
 
-Two planners exist. The scripted one is deterministic and is labelled as a
-scripted procedure in the interface, never as reasoning. An OpenAI planner
-using the Responses API is implemented and tested, including one controlled
-paid run: five model requests, 4,711 tokens, 32.7 seconds.
+Two planners exist. The scripted one is deterministic and is labelled in the
+interface as a scripted procedure, never as reasoning. The route that runs it
+reports its own mode as `scripted` unconditionally, because it only ever
+constructs that planner. It used to report `llm` whenever an API key happened
+to be present, which would have claimed model reasoning for a procedure that
+does no reasoning at all, the moment a key was added.
 
-**Paid inference is disabled on the public deployment.** It requires an
-explicit flag beyond the presence of a key, so a key alone cannot start
-billing. The deterministic investigation is the entire public experience, and
-it is complete without a model.
+The second planner is a GPT-6 Luna model driving the same read-only tools
+through the Responses API. A controlled run costs three model requests and
+about 2,700 tokens.
+
+The most useful thing the model did was fail honestly. Given the tools, it
+chose `list_entities`, then `analyse_impact` with a depth of 8, which is its
+own choice rather than the scripted default of 6. Then it stopped and said it
+could not name the exposed entities. It was right: the tool's text summary
+reported only counts, and the summary is the only part of a tool result the
+model sees. With no entity id to pass, it could not call `explain_path`, and
+it declined to invent one. A plausible-looking fabricated id is exactly the
+failure this project exists to avoid, and the model refused to produce one.
+The scripted planner never hit this, because it reads the structured result
+out of the loop state. The gap survived until a model drove the
+investigation, which is a reasonable argument for having both.
+
+The fix was to make the tool name what it found rather than only counting it.
+
+Paid inference runs behind two switches, not one: a key must be present **and**
+an explicit flag must be on, so a key alone can never start billing. Spending
+is capped two ways. A global ledger in FalkorDB caps tokens and requests per
+rolling window, incremented atomically, because a process-local counter on
+serverless means a fresh budget on every cold start. A per-visitor limit sits
+on top, since a global cap alone does not stop one caller consuming the whole
+day's allowance. When either limit is reached, the model path silently stops
+and the deterministic answer is what you get, which is the same answer the
+rest of the site is built on.
 
 ## Three bugs worth describing
 
