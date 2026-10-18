@@ -6,6 +6,9 @@ caused each consequence, and cites the source record behind every claim.
 
 **Live demo: <https://nexusforge-ten.vercel.app>**
 
+Graph structure and agent query flow are diagrammed in
+[Graph map: nodes, relationships, and how the agent queries them](#graph-map-nodes-relationships-and-how-the-agent-queries-them).
+
 Built for [Graph Hacks 2026](https://www.wemakedevs.org/hackathons/falkordb),
 targeting Track 01 (Agents That Act on Connected Data) and Track 03
 (Company Brain).
@@ -72,6 +75,120 @@ proposed for it is closing the evidence gap, not routing around it.
 are realistic neighbours in an AI company. Neither has a dependency route to
 the gateway, and both are excluded. One decoy is an event topic structurally
 identical to the real one, so exclusion cannot be a naming heuristic.
+
+## Graph map: nodes, relationships, and how the agent queries them
+
+Every id below is a real id in the seeded Northstar graph
+([`src/domain/northstar/seed-data.ts`](src/domain/northstar/seed-data.ts)),
+not an illustration. Edge labels are the actual `DEPENDS_ON` relationship ids
+the traversal returns and the interface draws.
+
+```mermaid
+flowchart LR
+  MER["Meridian Health MSA<br/>clause 8.2<br/>(CustomerCommitment)"]
+  OBL["Quarterly customer<br/>compliance evidence<br/>(Obligation)"]
+  LED["Immutable Audit Ledger<br/>(Datastore)"]
+  PROC["Audit Event Processor<br/>(Service)"]
+  TOP["inference.events (topic)<br/>(EventTopic)"]
+  GW["AI Inference Gateway<br/>(Service, the change)"]
+  SRC[["Source: src_ns_meridian_msa<br/>MSA schedule 3, clause 8.2"]]
+  BILL["Billing API<br/>(decoy)"]
+  BDB["Billing database<br/>(decoy)"]
+
+  MER -->|nsdep_meridian_on_obligation| OBL
+  OBL -->|nsdep_obligation_on_auditproc| PROC
+  OBL -->|nsdep_obligation_on_ledger| LED
+  LED -->|nsdep_ledger_on_auditproc| PROC
+  PROC -->|nsdep_auditproc_on_topic| TOP
+  TOP -->|nsdep_topic_on_gateway| GW
+  MER -.->|EVIDENCED_BY| SRC
+  BILL -->|nsdep_billing_on_db| BDB
+```
+
+**Direction.** Arrows are stored as
+`(dependent)-[:DEPENDS_ON]->(dependency)`, which is what the diagram draws,
+because that is the fact recorded in the database. **Impact propagates in the
+opposite direction:** the gateway is on the right, and losing it flows
+leftwards to the contract clause. The traversal therefore walks these edges in
+reverse, matching `(affected)-[:DEPENDS_ON*1..6]->(root)`.
+
+Meridian sits four relationships from the gateway with no direct edge to it.
+Two distinct routes reach it: the shorter one through
+`nsdep_obligation_on_auditproc`, and a longer one through the audit ledger.
+They share the processor, the topic and the gateway, so they are distinct
+routes, not independent corroboration. `Billing API` is connected to its own
+database but has no route to the gateway, so deterministic traversal excludes
+it — exclusion is structural, never a name filter.
+
+**What is in the graph**
+
+| Category | In the application |
+|---|---|
+| Node labels | `:Entity`, `:Source`, `:AnalysisRun`, `:Finding`, `:ActionProposal`, `:AuditEvent` |
+| `:Entity` `type` values | `Service`, `EventTopic`, `Datastore`, `Obligation`, `CustomerCommitment`, `FailoverPlan`, `Responsibility`, `OnCallAssignment`, `Person`, `ArchitectureDecision` |
+| Dependency edge `kind` values | `calls_synchronously`, `produced_by`, `consumes`, `written_by`, `evidenced_from`, `requires_continuous_processing`, `contractually_requires`, `restores`, `constrained_by`, `executes`, `covers`, `assigned_to`, `reads_writes` |
+| Relationship types | `DEPENDS_ON`, `EVIDENCED_BY`, `PROPOSED_IN`, `ABOUT_PROPOSAL`, `IN_RUN` |
+| Evidence references | `src_ns_meridian_msa`, `src_ns_compliance_policy`, `src_ns_audit_design`, `src_ns_event_contract`, `src_ns_service_catalog`, `src_ns_runbook_failover`, `src_ns_oncall_roster`, `src_ns_incident_postmortem` |
+
+Every dependency edge carries a `sourceId`. One is deliberately dangling:
+`nsdep_plan_on_gateway` cites `src_ns_adr_014_current_status`, which does not
+exist as a `:Source` node, so that edge resolves to `MISSING` evidence and its
+finding is `supported: false`.
+
+### How the agent queries the graph
+
+```mermaid
+flowchart TD
+  Q["Visitor question"] --> GATE{"Model planner<br/>explicitly enabled?"}
+  GATE -->|"No — the deployed default"| DET["Deterministic resolver<br/>fixed traversal, no model"]
+  GATE -->|"Yes — NF_AGENT_ENABLED=true<br/>plus NF_AGENT_LLM=on plus a key"| LUNA["gpt-6-luna chooses<br/>the next tool and its arguments"]
+  LUNA --> ZOD["Zod validates every argument;<br/>step cap, timeouts and token<br/>budget enforced outside the planner"]
+  ZOD --> T["Read-only tools:<br/>list_entities · analyse_impact · explain_path<br/>get_evidence · list_proposals"]
+  DET --> T
+  T --> RO[("FalkorDB<br/>GRAPH.RO_QUERY")]
+  RO --> ROWS["Rows: entity ids, walked relationship ids,<br/>source ids and verbatim excerpts"]
+  ROWS --> LUNA
+  ROWS --> OUT["Answer, canvas arrows and cited evidence"]
+```
+
+**FalkorDB decides; the model only chooses what to ask.** The planner picks a
+tool name and arguments. It cannot compose Cypher, because no tool accepts
+Cypher. Every fact in an answer — which entities are exposed, the hops between
+them, the claim class, the evidence status and the excerpts — comes back from
+`GRAPH.RO_QUERY` against FalkorDB. Remove the database and there is no answer
+to narrate: there is no in-memory fallback and no mocked FalkorDB anywhere in
+the test suite. The tool summaries the planner reads carry the real entity ids,
+so its next choice is constrained by what the graph actually returned.
+
+**Model-planned versus deterministic.** These are separate paths and the
+interface labels which one produced an answer:
+
+| | Deterministic analysis | Model-planned investigation |
+|---|---|---|
+| Who picks the steps | Fixed code, or a scripted planner | `gpt-6-luna` |
+| Where facts come from | FalkorDB | FalkorDB, identical read-only tools |
+| Cost | None | Paid, rate limited per visitor |
+| Status on the live demo | **This is what runs** | Off: requires two flags plus a key |
+
+The grounded deterministic answer is always computed first and is the
+authoritative content. A model-planned run adds tool selection and narration
+on top; it never replaces the grounded answer and never decides what is true.
+The scripted planner is always labelled a scripted procedure, never reasoning.
+
+**Scope limits, stated plainly.** Northstar Labs is entirely synthetic: no
+real company, person, system, customer or contract is represented, and every
+seeded node carries `synthetic: true`. The agent cannot execute external
+actions — it has no write tool, no approve or reject tool, and no integration
+that could act outside this application. Approval records a decision and
+returns `executed: false`.
+
+**Links**
+
+- Live demo: <https://nexusforge-ten.vercel.app>
+- [docs/GRAPH_MODEL.md](docs/GRAPH_MODEL.md): full schema, queries and rationale
+- [docs/TRACK1_DEMO.md](docs/TRACK1_DEMO.md): the agent demonstration, step by step
+- [docs/REQUIREMENTS.md](docs/REQUIREMENTS.md): hackathon requirements and how each is met
+- Agent tools: [`src/lib/agent/tools.ts`](src/lib/agent/tools.ts) · planner: [`src/lib/agent/openai-planner.ts`](src/lib/agent/openai-planner.ts) · traversal: [`src/lib/graph/queries.ts`](src/lib/graph/queries.ts)
 
 ## The education demonstration
 
