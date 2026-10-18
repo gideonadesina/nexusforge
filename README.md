@@ -139,16 +139,17 @@ finding is `supported: false`.
 
 ```mermaid
 flowchart TD
-  Q["Visitor question"] --> GATE{"Model planner<br/>explicitly enabled?"}
-  GATE -->|"No — the deployed default"| DET["Deterministic resolver<br/>fixed traversal, no model"]
-  GATE -->|"Yes — NF_AGENT_ENABLED=true<br/>plus NF_AGENT_LLM=on plus a key"| LUNA["gpt-6-luna chooses<br/>the next tool and its arguments"]
-  LUNA --> ZOD["Zod validates every argument;<br/>step cap, timeouts and token<br/>budget enforced outside the planner"]
-  ZOD --> T["Read-only tools:<br/>list_entities · analyse_impact · explain_path<br/>get_evidence · list_proposals"]
-  DET --> T
+  Q["Visitor question"] --> DET["Deterministic resolver<br/>fixed traversal, no model<br/>always runs first"]
+  DET --> T["Read-only tools:<br/>list_entities · analyse_impact · explain_path<br/>get_evidence · list_proposals"]
   T --> RO[("FalkorDB<br/>GRAPH.RO_QUERY")]
   RO --> ROWS["Rows: entity ids, walked relationship ids,<br/>source ids and verbatim excerpts"]
-  ROWS --> LUNA
   ROWS --> OUT["Answer, canvas arrows and cited evidence"]
+  OUT --> GATE{"Visitor pressed<br/>Re-run as a model-planned<br/>investigation?"}
+  GATE -->|"No — nothing bills"| STOP["Deterministic answer stands"]
+  GATE -->|"Yes — within visitor limit,<br/>budget cap and kill switch"| LUNA["gpt-6-luna chooses<br/>the next tool and its arguments"]
+  LUNA --> ZOD["Zod validates every argument;<br/>step cap, timeouts and token<br/>budget enforced outside the planner"]
+  ZOD --> T
+  ROWS --> LUNA
 ```
 
 **FalkorDB decides; the model only chooses what to ask.** The planner picks a
@@ -168,7 +169,7 @@ interface labels which one produced an answer:
 | Who picks the steps | Fixed code, or a scripted planner | `gpt-6-luna` |
 | Where facts come from | FalkorDB | FalkorDB, identical read-only tools |
 | Cost | None | Paid, rate limited per visitor |
-| Status on the live demo | **This is what runs** | Off: requires two flags plus a key |
+| Status on the live demo | **Live**, and answers every question first | **Live** as an explicit opt-in, under visitor, budget and kill-switch limits |
 
 The grounded deterministic answer is always computed first and is the
 authoritative content. A model-planned run adds tool selection and narration
@@ -302,17 +303,47 @@ limits are structural rather than prompted:
   atomically, so it holds across serverless instances rather than per process
 
 Two planners exist. The scripted planner is deterministic and is labelled as a
-scripted procedure, never as reasoning. An OpenAI planner using the Responses
-API is implemented but off.
+scripted procedure, never as reasoning. The OpenAI planner uses the Responses
+API and selects from the same constrained, read-only tool surface.
 
-**The agent is disabled in production.** It requires `NF_AGENT_ENABLED=true`,
-and the model planner additionally requires `NF_AGENT_LLM=on` plus a key. A key
-alone cannot start billing. The deployed site runs the deterministic path only.
+**A bounded public AI pilot is live.** Visitors can run a real model-planned
+investigation against the deployed demo, with `gpt-6-luna` choosing which
+read-only FalkorDB tools to call.
 
-One controlled paid test was run locally against `gpt-6-luna`: five model
-requests, 4,711 tokens, 32.7 seconds. The safety invariants held. No
-cost-per-run figure is published here, because no verified price for that model
-was available to measure against.
+- **Deterministic investigation is always available**, and it is what every
+  question answers with first. It needs no model and costs nothing.
+- **The model path is an explicit per-question opt-in.** After a deterministic
+  answer appears, Ask NexusForge shows a **"Re-run as a model-planned
+  investigation"** control. Nothing bills unless a visitor presses it: the
+  request carries `useModel: true` or no inference happens.
+- **`/api/ask` is the model-planned surface. `/api/agent` remains scripted**
+  and is not a model endpoint.
+- **The model only selects tools.** It cannot compose Cypher, cannot write, and
+  cannot approve. Every fact comes back from `GRAPH.RO_QUERY`.
+
+Three independent controls bound the pilot, all enforced outside the planner:
+
+| Control | Mechanism |
+|---|---|
+| Per-visitor limit | Five model-planned investigations per visitor per hour (`NF_AGENT_VISITOR_MAX_REQUESTS`). A limited visitor still gets the deterministic answer, not an error |
+| Spending cap | A cumulative token and request ceiling held in FalkorDB and incremented atomically, so it holds across serverless instances. The deployment currently runs 150,000 tokens and 160 requests per rolling window, below the code defaults of 200,000 and 200 |
+| Kill switch | `NF_AGENT_ENABLED` and `NF_AGENT_LLM` both default off, and a key alone cannot start billing. Clearing either flag ends all inference immediately without a redeploy of application code |
+
+Exceeding the per-visitor limit or the spending cap degrades to the
+deterministic answer rather than failing the request. The live capability can
+be confirmed without spending anything: `GET /api/ask` reports
+`modelAvailable` and the current budget snapshot.
+
+**Human approval is still not external action execution.** A visitor approving
+a proposal records a decision in the audit trail and nothing more. There is no
+write tool, no integration, and no mechanism by which the agent or an approval
+could act outside this application. Every transition returns
+`executed: false`.
+
+An earlier controlled paid test against `gpt-6-luna` recorded five model
+requests, 4,711 tokens and 32.7 seconds, and the safety invariants held. No
+cost-per-run figure is published, because no verified price for that model was
+available to measure against.
 
 ## Setup
 
@@ -332,9 +363,13 @@ cp .env.example .env.local   # then fill in your instance details
 | `FALKORDB_PASSWORD` | yes | |
 | `FALKORDB_TLS` | no | `false` on the Cloud free tier, which has no TLS |
 | `FALKORDB_GRAPH` | no | Fallback graph. Per-organization graphs come from the server-side allowlist in `src/lib/org/registry.ts`. Must start with `nf_`. |
-| `OPENAI_API_KEY` | no | Only for the optional model planner |
-| `NF_AGENT_ENABLED` | no | `true` enables the agent. Default off. |
-| `NF_AGENT_LLM` | no | `on` enables paid inference. Default off. |
+| `OPENAI_API_KEY` | no | Only for the model planner |
+| `NF_AGENT_ENABLED` | no | `true` enables the agent. Default off. Set on the live demo. |
+| `NF_AGENT_LLM` | no | `on` enables paid inference. Default off. Set on the live demo. Both flags are required, so a key alone cannot start billing. |
+| `NF_AGENT_MODEL` | no | Planner model. Defaults to `gpt-6-luna`. |
+| `NF_AGENT_MAX_TOKENS` | no | Cumulative token ceiling per window. Code default 200,000. |
+| `NF_AGENT_MAX_REQUESTS` | no | Cumulative model-request ceiling per window. Code default 200. |
+| `NF_AGENT_VISITOR_MAX_REQUESTS` | no | Per-visitor model-planned investigations per window. Code default 5. |
 
 `.env.local` is gitignored and must never be committed.
 
